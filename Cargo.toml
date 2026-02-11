@@ -1,0 +1,17 @@
+[package]
+name = "blobfig"
+version = "0.1.0"
+edition = "2024"
+description = "Binary configuration format with zero-copy parsing"
+
+[features]
+default = []
+ndarray = ["dep:ndarray"]
+areamy = ["dep:areamy"]
+
+[dependencies]
+parsicomb = { git = "ssh://git@github.com/jonasrsv42/parsicomb"}
+ndarray = { version = "0.16.1", optional = true }
+areamy = { git = "ssh://git@github.com/jonasrsv42/areamy", optional = true }
+
+[dev-dependencies]
