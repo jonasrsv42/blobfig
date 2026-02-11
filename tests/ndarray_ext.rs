@@ -86,7 +86,7 @@ fn image_preprocessing_config() {
     let parsed = parse(&bytes).unwrap();
 
     let mean_back: ArrayD<f32> = parsed
-        .get("normalize.mean")
+        .get("normalize/mean")
         .unwrap()
         .as_array()
         .unwrap()
@@ -94,7 +94,7 @@ fn image_preprocessing_config() {
         .unwrap();
 
     let std_back: ArrayD<f32> = parsed
-        .get("normalize.std")
+        .get("normalize/std")
         .unwrap()
         .as_array()
         .unwrap()
@@ -216,7 +216,7 @@ fn complete_ml_artifact() {
     assert_eq!(model.data.len(), 1024);
 
     let mean_back: ArrayD<f32> = parsed
-        .get("preprocessing.mean")
+        .get("preprocessing/mean")
         .unwrap()
         .as_array()
         .unwrap()

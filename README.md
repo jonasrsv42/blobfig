@@ -25,6 +25,9 @@ let bytes = writer::to_bytes(config).unwrap();
 let parsed = parse(&bytes).unwrap();
 let version = parsed.get("version").unwrap().as_int();
 let model = parsed.get("model").unwrap().as_file().unwrap();
+
+// Nested access with path
+let mean = parsed.get("preprocessing/mean").unwrap().as_array();
 ```
 
 ## With ndarray

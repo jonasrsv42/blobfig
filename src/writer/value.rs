@@ -38,6 +38,12 @@ pub fn compute_size(value: &Value) -> io::Result<u64> {
 
             let mut entries_size = 0u64;
             for (key, val) in entries {
+                if key.contains('/') {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("key contains '/': {:?}", key),
+                    ));
+                }
                 let key_len_size = 2u64; // u16 for key length
                 let key_size = key.len() as u64;
                 let value_size = compute_size(val)?;
@@ -92,6 +98,12 @@ pub fn write_value<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
             writer.write_all(&[ValueTag::Object as u8])?;
             writer.write_all(&(entries.len() as u32).to_le_bytes())?;
             for (key, val) in entries {
+                if key.contains('/') {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("key contains '/': {:?}", key),
+                    ));
+                }
                 let key_bytes = key.as_bytes();
                 writer.write_all(&(key_bytes.len() as u16).to_le_bytes())?;
                 writer.write_all(key_bytes)?;

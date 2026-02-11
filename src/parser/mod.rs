@@ -141,10 +141,10 @@ mod tests {
         let parsed = parse(&bytes).unwrap();
 
         // Test path accessor
-        let enabled = parsed.get("config.enabled").unwrap();
+        let enabled = parsed.get("config/enabled").unwrap();
         assert_eq!(enabled.as_bool(), Some(true));
 
-        let threshold = parsed.get("config.threshold").unwrap();
+        let threshold = parsed.get("config/threshold").unwrap();
         let f = threshold.as_float().unwrap();
         assert!((f - 0.5).abs() < 1e-10);
     }

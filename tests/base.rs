@@ -206,11 +206,11 @@ fn roundtrip_nested_object() {
 
     // Test path accessor
     assert_eq!(
-        parsed.get("model.name").unwrap().as_str(),
+        parsed.get("model/name").unwrap().as_str(),
         Some("bert-base")
     );
-    assert_eq!(parsed.get("model.layers").unwrap().as_int(), Some(12));
-    assert_eq!(parsed.get("training.epochs").unwrap().as_int(), Some(100));
+    assert_eq!(parsed.get("model/layers").unwrap().as_int(), Some(12));
+    assert_eq!(parsed.get("training/epochs").unwrap().as_int(), Some(100));
 }
 
 #[test]
@@ -305,7 +305,7 @@ fn ml_config_use_case() {
 
     // Verify preprocessing arrays
     let mean = parsed
-        .get("preprocessing.mean")
+        .get("preprocessing/mean")
         .unwrap()
         .as_array()
         .unwrap();
@@ -447,5 +447,5 @@ fn deeply_nested() {
     let encoded = writer::to_bytes(value).unwrap();
     let parsed = parse(&encoded).unwrap();
 
-    assert_eq!(parsed.get("a.b.c.d").unwrap().as_int(), Some(42));
+    assert_eq!(parsed.get("a/b/c/d").unwrap().as_int(), Some(42));
 }

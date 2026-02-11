@@ -203,7 +203,7 @@ mod tests {
         let (val, _) = parse_value().parse(cursor).unwrap();
 
         // Use path accessor
-        let inner_val = val.get("inner.value").unwrap();
+        let inner_val = val.get("inner/value").unwrap();
         assert_eq!(inner_val.as_int(), Some(123));
     }
 

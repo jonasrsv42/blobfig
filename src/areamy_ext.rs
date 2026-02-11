@@ -7,8 +7,8 @@
 // NdarrayError integration (when both areamy and ndarray features are enabled)
 #[cfg(feature = "ndarray")]
 mod ndarray_errors {
-    use areamy::error::AnyErr;
     use crate::ndarray_ext::NdarrayError;
+    use areamy::error::AnyErr;
 
     impl AnyErr for NdarrayError {}
 
@@ -24,9 +24,9 @@ mod tests {
     #[cfg(feature = "ndarray")]
     #[test]
     fn ndarray_error_to_anyerr() {
-        use areamy::error::AnyErr;
         use crate::ndarray_ext::NdarrayError;
         use crate::types::DType;
+        use areamy::error::AnyErr;
 
         let err = NdarrayError::DTypeMismatch {
             expected: DType::F32,

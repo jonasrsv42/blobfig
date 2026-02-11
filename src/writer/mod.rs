@@ -127,4 +127,22 @@ mod tests {
         let bytes = to_bytes(value).unwrap();
         assert!(!bytes.is_empty());
     }
+
+    #[test]
+    fn test_key_with_slash_rejected() {
+        let value = Value::Object(vec![("invalid/key".into(), Value::Int(1))]);
+        let result = to_bytes(value);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains('/'));
+    }
+
+    #[test]
+    fn test_nested_key_with_slash_rejected() {
+        let value = Value::Object(vec![(
+            "valid".into(),
+            Value::Object(vec![("also/invalid".into(), Value::Int(1))]),
+        )]);
+        let result = to_bytes(value);
+        assert!(result.is_err());
+    }
 }

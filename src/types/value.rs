@@ -201,10 +201,10 @@ impl<'a> ValueView<'a> {
         }
     }
 
-    /// Get a nested value by dot-separated path (e.g., "audio.sample_rate")
+    /// Get a nested value by path (e.g., "audio/sample_rate")
     pub fn get(&self, path: &str) -> Option<&ValueView<'a>> {
         let mut current = self;
-        for key in path.split('.') {
+        for key in path.split('/') {
             match current {
                 ValueView::Object(entries) => {
                     current = entries.iter().find(|(k, _)| *k == key).map(|(_, v)| v)?;
