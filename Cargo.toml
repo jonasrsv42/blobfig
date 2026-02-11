@@ -11,7 +11,7 @@ areamy = ["dep:areamy"]
 
 [dependencies]
 parsicomb = { git = "ssh://git@github.com/jonasrsv42/parsicomb"}
-ndarray = { version = "0.16.1", optional = true }
+ndarray = { version = "0.17.2", optional = true }
 areamy = { git = "ssh://git@github.com/jonasrsv42/areamy", optional = true }
 
 [dev-dependencies]
