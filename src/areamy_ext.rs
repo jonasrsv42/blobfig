@@ -26,13 +26,20 @@ impl From<AccessError> for Error {
 #[cfg(feature = "ndarray")]
 mod ndarray_errors {
     use crate::ndarray_ext::NdarrayError;
-    use areamy::error::AnyErr;
+    use areamy::any_err;
+    use areamy::error::{AnyErr, Error};
 
     impl AnyErr for NdarrayError {}
 
     impl From<NdarrayError> for Box<dyn AnyErr> {
         fn from(value: NdarrayError) -> Self {
             Box::new(value)
+        }
+    }
+
+    impl From<NdarrayError> for Error {
+        fn from(value: NdarrayError) -> Self {
+            any_err!(value)
         }
     }
 }
