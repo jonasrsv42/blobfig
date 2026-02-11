@@ -5,13 +5,20 @@
 //! Enable with the `areamy` feature flag.
 
 use crate::error::AccessError;
-use areamy::error::AnyErr;
+use areamy::any_err;
+use areamy::error::{AnyErr, Error};
 
 impl AnyErr for AccessError {}
 
 impl From<AccessError> for Box<dyn AnyErr> {
     fn from(value: AccessError) -> Self {
         Box::new(value)
+    }
+}
+
+impl From<AccessError> for Error {
+    fn from(value: AccessError) -> Self {
+        any_err!(value)
     }
 }
 
