@@ -4,7 +4,7 @@
 pub const MAGIC: &[u8; 8] = b"BLOBFIG\0";
 
 /// Current format version
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
-/// Header size in bytes
-pub const HEADER_SIZE: usize = 24;
+/// Header size in bytes (magic + version + flags)
+pub const HEADER_SIZE: usize = 16;

@@ -51,17 +51,6 @@ fn stream_from_handle<W: Write, R: Read + ?Sized>(
     Ok(())
 }
 
-/// Compute serialized size of a file
-pub fn file_size(file: &File) -> u64 {
-    let tag_size = 1u64;
-    let mimetype_len_size = 2u64; // u16 for mimetype length
-    let mimetype_size = file.mimetype.len() as u64;
-    let data_len_size = 8u64; // u64 for data length
-    let data_size = file.size();
-
-    tag_size + mimetype_len_size + mimetype_size + data_len_size + data_size
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

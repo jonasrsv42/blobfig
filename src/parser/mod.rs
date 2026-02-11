@@ -162,7 +162,6 @@ mod tests {
         bytes.extend_from_slice(MAGIC);
         bytes.extend_from_slice(&99u32.to_le_bytes()); // Wrong version
         bytes.extend_from_slice(&0u32.to_le_bytes()); // flags
-        bytes.extend_from_slice(&0u64.to_le_bytes()); // padding to reach HEADER_SIZE
         let result = parse(&bytes);
         assert!(result.is_err());
     }

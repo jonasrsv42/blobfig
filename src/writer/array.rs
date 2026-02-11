@@ -16,18 +16,6 @@ pub fn write_array<W: Write>(writer: &mut W, arr: &Array) -> io::Result<()> {
     Ok(())
 }
 
-/// Compute serialized size of an array
-pub fn array_size(arr: &Array) -> u64 {
-    let tag_size = 1u64;
-    let dtype_size = 1u64;
-    let ndim_size = 1u64;
-    let shape_size = arr.shape.len() as u64 * 8; // each dim is u64
-    let data_len_size = 8u64; // u64 for data length
-    let data_size = arr.data.len() as u64;
-
-    tag_size + dtype_size + ndim_size + shape_size + data_len_size + data_size
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

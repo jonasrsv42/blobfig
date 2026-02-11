@@ -7,7 +7,7 @@ mod value;
 use crate::types::{MAGIC, VERSION, Value};
 use std::io::{self, Write};
 
-use value::{compute_size, write_value};
+use value::write_value;
 
 /// Write a blobfig value to a writer (consumes the value to handle streaming)
 pub fn write<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
@@ -15,10 +15,6 @@ pub fn write<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
     writer.write_all(MAGIC)?;
     writer.write_all(&VERSION.to_le_bytes())?;
     writer.write_all(&0u32.to_le_bytes())?; // flags (reserved)
-
-    // Compute root size
-    let root_size = compute_size(&value)?;
-    writer.write_all(&root_size.to_le_bytes())?;
 
     // Write the value
     write_value(writer, value)?;
