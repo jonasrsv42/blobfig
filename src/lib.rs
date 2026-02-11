@@ -46,6 +46,7 @@ pub mod ndarray_ext;
 pub mod areamy_ext;
 
 // Re-export common types at crate root
+pub use error::AccessError;
 pub use parser::parse;
 pub use types::{
     Array, ArrayView, DType, File, FileData, FileHandle, FileView, HEADER_SIZE, MAGIC, VERSION,

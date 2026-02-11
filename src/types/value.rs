@@ -1,6 +1,7 @@
 //! Value types - owned and view variants
 
 use super::{Array, ArrayView, File, FileView};
+use crate::error::AccessError;
 
 /// Value type tags
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,5 +214,95 @@ impl<'a> ValueView<'a> {
             }
         }
         Some(current)
+    }
+
+    // =========================================================================
+    // Convenience accessors that return Result with path context
+    // =========================================================================
+
+    /// Get a bool at path
+    pub fn bool(&self, path: &str) -> Result<bool, AccessError> {
+        let value = self.get(path).ok_or_else(|| AccessError::NotFound {
+            path: path.to_string(),
+        })?;
+        value.as_bool().ok_or_else(|| AccessError::TypeMismatch {
+            path: path.to_string(),
+            expected: "bool",
+            actual: value.tag(),
+        })
+    }
+
+    /// Get an i64 at path
+    pub fn int(&self, path: &str) -> Result<i64, AccessError> {
+        let value = self.get(path).ok_or_else(|| AccessError::NotFound {
+            path: path.to_string(),
+        })?;
+        value.as_int().ok_or_else(|| AccessError::TypeMismatch {
+            path: path.to_string(),
+            expected: "int",
+            actual: value.tag(),
+        })
+    }
+
+    /// Get an f64 at path
+    pub fn float(&self, path: &str) -> Result<f64, AccessError> {
+        let value = self.get(path).ok_or_else(|| AccessError::NotFound {
+            path: path.to_string(),
+        })?;
+        value.as_float().ok_or_else(|| AccessError::TypeMismatch {
+            path: path.to_string(),
+            expected: "float",
+            actual: value.tag(),
+        })
+    }
+
+    /// Get a string at path
+    pub fn string(&self, path: &str) -> Result<&'a str, AccessError> {
+        let value = self.get(path).ok_or_else(|| AccessError::NotFound {
+            path: path.to_string(),
+        })?;
+        value.as_str().ok_or_else(|| AccessError::TypeMismatch {
+            path: path.to_string(),
+            expected: "string",
+            actual: value.tag(),
+        })
+    }
+
+    /// Get an array at path
+    pub fn array(&self, path: &str) -> Result<&ArrayView<'a>, AccessError> {
+        let value = self.get(path).ok_or_else(|| AccessError::NotFound {
+            path: path.to_string(),
+        })?;
+        value.as_array().ok_or_else(|| AccessError::TypeMismatch {
+            path: path.to_string(),
+            expected: "array",
+            actual: value.tag(),
+        })
+    }
+
+    /// Get a file at path
+    pub fn file(&self, path: &str) -> Result<&FileView<'a>, AccessError> {
+        let value = self.get(path).ok_or_else(|| AccessError::NotFound {
+            path: path.to_string(),
+        })?;
+        value.as_file().ok_or_else(|| AccessError::TypeMismatch {
+            path: path.to_string(),
+            expected: "file",
+            actual: value.tag(),
+        })
+    }
+
+    /// Get the tag for this value
+    pub fn tag(&self) -> ValueTag {
+        match self {
+            ValueView::Bool(_) => ValueTag::Bool,
+            ValueView::Int(_) => ValueTag::Int,
+            ValueView::Float(_) => ValueTag::Float,
+            ValueView::String(_) => ValueTag::String,
+            ValueView::Array(_) => ValueTag::Array,
+            ValueView::File(_) => ValueTag::File,
+            ValueView::Object(_) => ValueTag::Object,
+            ValueView::List(_) => ValueTag::List,
+        }
     }
 }
