@@ -48,7 +48,10 @@ fn fmt_view(f: &mut fmt::Formatter<'_>, v: &ValueView<'_>, indent: usize) -> fmt
         ValueView::Bool(b) => write!(f, "{b}"),
         ValueView::Int(i) => write!(f, "{i}"),
         ValueView::Float(x) => write!(f, "{x}"),
-        ValueView::String(s) => fmt_string(f, s),
+        // Quoted (Rust debug form) so strings are unambiguous — `"true"` vs the
+        // bool `true`, `"42"` vs the int `42` — and so control characters are
+        // escaped, keeping each value on one line (can't forge a fake `key:`).
+        ValueView::String(s) => write!(f, "{s:?}"),
         ValueView::File(file) => {
             write!(
                 f,
@@ -106,17 +109,6 @@ fn fmt_member(f: &mut fmt::Formatter<'_>, val: &ValueView<'_>, indent: usize) ->
     }
 }
 
-/// Strings render raw, except those containing control characters (newlines,
-/// tabs, …) are quoted/escaped. This keeps each value on one line so a value
-/// can't break the indented layout or forge a fake `key:` line in the output.
-fn fmt_string(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
-    if s.chars().any(char::is_control) {
-        write!(f, "{s:?}")
-    } else {
-        write!(f, "{s}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::human_size;
@@ -133,7 +125,10 @@ mod tests {
     fn scalars_render_inline() {
         assert_eq!(display_of(Value::Bool(true)), "true");
         assert_eq!(display_of(Value::Int(42)), "42");
-        assert_eq!(display_of(Value::String("hi".into())), "hi");
+        // Strings are quoted to stay unambiguous against bool/int.
+        assert_eq!(display_of(Value::String("hi".into())), "\"hi\"");
+        assert_eq!(display_of(Value::String("true".into())), "\"true\"");
+        assert_eq!(display_of(Value::String("42".into())), "\"42\"");
     }
 
     #[test]
@@ -147,7 +142,7 @@ mod tests {
         ]);
         let out = display_of(v);
         // Root-level first entry has no leading blank line.
-        assert!(out.starts_with("name: test"), "{out:?}");
+        assert!(out.starts_with("name: \"test\""), "{out:?}");
         assert!(out.contains("\nnested:"), "{out:?}");
         assert!(out.contains("\n  k: 1"), "{out:?}");
     }
@@ -194,7 +189,7 @@ mod tests {
     #[test]
     fn list_renders_with_dashes() {
         let v = Value::List(vec![Value::Int(1), Value::String("a".into())]);
-        assert_eq!(display_of(v), "- 1\n- a");
+        assert_eq!(display_of(v), "- 1\n- \"a\"");
     }
 
     #[test]
