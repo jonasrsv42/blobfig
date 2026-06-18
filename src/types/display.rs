@@ -48,7 +48,7 @@ fn fmt_view(f: &mut fmt::Formatter<'_>, v: &ValueView<'_>, indent: usize) -> fmt
         ValueView::Bool(b) => write!(f, "{b}"),
         ValueView::Int(i) => write!(f, "{i}"),
         ValueView::Float(x) => write!(f, "{x}"),
-        ValueView::String(s) => write!(f, "{s}"),
+        ValueView::String(s) => fmt_string(f, s),
         ValueView::File(file) => {
             write!(
                 f,
@@ -77,12 +77,7 @@ fn fmt_view(f: &mut fmt::Formatter<'_>, v: &ValueView<'_>, indent: usize) -> fmt
                 } else {
                     write!(f, "\n{:indent$}{key}:", "")?;
                 }
-                if is_block(val) {
-                    fmt_view(f, val, indent + 2)?;
-                } else {
-                    f.write_str(" ")?;
-                    fmt_view(f, val, indent + 2)?;
-                }
+                fmt_member(f, val, indent + 2)?;
             }
             Ok(())
         }
@@ -93,27 +88,45 @@ fn fmt_view(f: &mut fmt::Formatter<'_>, v: &ValueView<'_>, indent: usize) -> fmt
                 } else {
                     write!(f, "\n{:indent$}-", "")?;
                 }
-                if is_block(item) {
-                    fmt_view(f, item, indent + 2)?;
-                } else {
-                    f.write_str(" ")?;
-                    fmt_view(f, item, indent + 2)?;
-                }
+                fmt_member(f, item, indent + 2)?;
             }
             Ok(())
         }
     }
 }
 
+/// Render a member value after its `key:` / `-` marker: blocks continue on the
+/// following indented lines, scalars stay inline after a single space.
+fn fmt_member(f: &mut fmt::Formatter<'_>, val: &ValueView<'_>, indent: usize) -> fmt::Result {
+    if is_block(val) {
+        fmt_view(f, val, indent)
+    } else {
+        f.write_str(" ")?;
+        fmt_view(f, val, indent)
+    }
+}
+
+/// Strings render raw, except those containing control characters (newlines,
+/// tabs, …) are quoted/escaped. This keeps each value on one line so a value
+/// can't break the indented layout or forge a fake `key:` line in the output.
+fn fmt_string(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
+    if s.chars().any(char::is_control) {
+        write!(f, "{s:?}")
+    } else {
+        write!(f, "{s}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::human_size;
     use crate::{Value, parse, writer};
 
     fn display_of(value: Value) -> String {
         let bytes = writer::to_bytes(value).unwrap();
-        // Leak the bytes so the borrowed ValueView can outlive this helper.
-        let bytes: &'static [u8] = Box::leak(bytes.into_boxed_slice());
-        format!("{}", parse(bytes).unwrap())
+        // The borrowed ValueView only needs to outlive the `format!` call, which
+        // happens before `bytes` drops at the end of this statement.
+        format!("{}", parse(&bytes).unwrap())
     }
 
     #[test]
@@ -176,5 +189,36 @@ mod tests {
     fn empty_containers() {
         assert_eq!(display_of(Value::Object(vec![])), "{}");
         assert_eq!(display_of(Value::List(vec![])), "[]");
+    }
+
+    #[test]
+    fn list_renders_with_dashes() {
+        let v = Value::List(vec![Value::Int(1), Value::String("a".into())]);
+        assert_eq!(display_of(v), "- 1\n- a");
+    }
+
+    #[test]
+    fn control_chars_are_escaped_to_one_line() {
+        // A value must not be able to forge a fake `key:` line by embedding a
+        // newline. The escaped form stays on a single line.
+        let v = Value::Object(vec![(
+            "note".into(),
+            Value::String("x\nadmin: true".into()),
+        )]);
+        let out = display_of(v);
+        assert!(
+            !out.contains("\nadmin: true"),
+            "value forged a line: {out:?}"
+        );
+        assert!(out.starts_with("note: \""), "{out:?}");
+    }
+
+    #[test]
+    fn human_size_units() {
+        assert_eq!(human_size(0), "0 B");
+        assert_eq!(human_size(1023), "1023 B");
+        assert_eq!(human_size(1024), "1.0 KiB");
+        assert_eq!(human_size(1536), "1.5 KiB");
+        assert_eq!(human_size(1024 * 1024), "1.0 MiB");
     }
 }
