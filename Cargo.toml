@@ -15,3 +15,8 @@ ndarray = { version = "0.17.2", optional = true }
 areamy = { git = "ssh://git@github.com/jonasrsv42/areamy", optional = true }
 
 [dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "parse_failure"
+harness = false
