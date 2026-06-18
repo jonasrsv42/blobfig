@@ -67,6 +67,12 @@ impl<'a> Parser<'a> for ValueParser {
                 let (items, cursor) = ntimes(n as usize, parse_value()).parse(cursor)?;
                 Ok((ValueView::List(items), cursor))
             }
+            ValueTag::Secret => {
+                // Transparent wrapper: parse the inner value and re-wrap it so
+                // it stays redacted when printed.
+                let (inner, cursor) = parse_value().parse(cursor)?;
+                Ok((ValueView::Secret(Box::new(inner)), cursor))
+            }
         }
     }
 }

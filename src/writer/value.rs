@@ -56,6 +56,12 @@ pub fn write_value<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
                 write_value(writer, item)?;
             }
         }
+        Value::Secret(inner) => {
+            // Secret is a transparent wrapper on the wire: tag + inner value.
+            // The secrecy marker travels with the data so it survives a roundtrip.
+            writer.write_all(&[ValueTag::Secret as u8])?;
+            write_value(writer, *inner)?;
+        }
     }
     Ok(())
 }
