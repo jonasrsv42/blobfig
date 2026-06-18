@@ -1,6 +1,7 @@
 //! Core types for blobfig format
 
 mod array;
+mod display;
 mod dtype;
 mod file;
 mod header;

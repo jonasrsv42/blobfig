@@ -1,3 +1,9 @@
+[workspace]
+# The root package (`blobfig`, the library) is itself a workspace member, so
+# existing dependents resolving the `blobfig` package are unaffected. CLI-only
+# dependencies live in the `blobfig-cli` member, never in the library manifest.
+members = [".", "blobfig-cli"]
+
 [package]
 name = "blobfig"
 version = "0.1.0"

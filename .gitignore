@@ -1,2 +1,8 @@
-/target
+# Build artifacts. The workspace shares a single root `target/`, but match any
+# nested ones too (e.g. if a member is built standalone).
+target/
+
+# Library convention keeps the lockfile out of VCS. Now that the workspace also
+# ships the `blobfig-cli` binary, consider committing Cargo.lock for
+# reproducible `install.sh` builds.
 Cargo.lock
