@@ -20,7 +20,7 @@ pub fn write_array<W: Write>(writer: &mut W, arr: &Array) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::parser::parse_value;
-    use crate::types::DType;
+    use crate::types::{DType, ValueNode};
     use parsicomb::{ByteCursor, Parser};
 
     #[test]

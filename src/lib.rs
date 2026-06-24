@@ -50,7 +50,7 @@ pub use error::AccessError;
 pub use parser::parse;
 pub use types::{
     Array, ArrayView, DType, File, FileData, FileHandle, FileView, HEADER_SIZE, MAGIC, VERSION,
-    Value, ValueTag, ValueView,
+    Value, ValueNode, ValueTag, ValueView,
 };
 
 #[cfg(feature = "ndarray")]

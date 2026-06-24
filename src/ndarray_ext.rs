@@ -235,7 +235,7 @@ impl<'a> ArrayView<'a> {
         }
 
         // Check alignment
-        if (self.data.as_ptr() as usize) % std::mem::align_of::<T>() != 0 {
+        if !(self.data.as_ptr() as usize).is_multiple_of(std::mem::align_of::<T>()) {
             return Err(NdarrayError::AlignmentError);
         }
 

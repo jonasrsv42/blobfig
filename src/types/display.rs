@@ -1,27 +1,35 @@
-//! Human-readable `Display` rendering for parsed values (used by tools like the
-//! CLI). Distinct from `Debug`:
+//! Human-readable `Display` rendering for values (used by tools like the CLI).
+//! Distinct from `Debug`:
 //!
 //! - secrets render as `<redacted>` (the same redaction guarantee), and
 //! - binary `File`/`Array` values render as a one-line summary instead of
 //!   dumping their bytes.
 //!
-//! The layout is a simple YAML-ish indented tree.
+//! The layout is a simple YAML-ish indented tree. The walker is written once
+//! over [`ValueNode`] so owned [`Value`] and borrowed [`ValueView`] share it.
 
-use super::ValueView;
 use super::value::REDACTED;
+use super::{Value, ValueNode, ValueTag, ValueView};
 use std::fmt;
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_node(f, self, 0)
+    }
+}
 
 impl<'a> fmt::Display for ValueView<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt_view(f, self, 0)
+        fmt_node(f, self, 0)
     }
 }
 
 /// True for non-empty containers, which render across multiple indented lines.
-fn is_block(v: &ValueView<'_>) -> bool {
-    match v {
-        ValueView::Object(e) => !e.is_empty(),
-        ValueView::List(items) => !items.is_empty(),
+/// Secrets are never blocks — they redact inline.
+fn is_block<T: ValueNode>(v: &T) -> bool {
+    match v.tag() {
+        ValueTag::Object => v.object_entries().is_some_and(|mut e| e.next().is_some()),
+        ValueTag::List => v.as_list().is_some_and(|items| !items.is_empty()),
         _ => false,
     }
 }
@@ -41,38 +49,34 @@ fn human_size(bytes: u64) -> String {
     }
 }
 
-fn fmt_view(f: &mut fmt::Formatter<'_>, v: &ValueView<'_>, indent: usize) -> fmt::Result {
-    match v {
-        // Redaction choke point for Display, mirroring Debug.
-        ValueView::Secret(_) => f.write_str(REDACTED),
-        ValueView::Bool(b) => write!(f, "{b}"),
-        ValueView::Int(i) => write!(f, "{i}"),
-        ValueView::Float(x) => write!(f, "{x}"),
+fn fmt_node<T: ValueNode>(f: &mut fmt::Formatter<'_>, v: &T, indent: usize) -> fmt::Result {
+    // Match on the tag so this stays exhaustive — a new variant won't silently
+    // render as nothing. The tag selects the arm, so each accessor below is
+    // guaranteed `Some` (the `as_*` peel secrets, but a `Secret` tag is handled
+    // first, mirroring `Debug`'s redaction choke point).
+    match v.tag() {
+        ValueTag::Secret => f.write_str(REDACTED),
+        ValueTag::Bool => write!(f, "{}", v.as_bool().unwrap()),
+        ValueTag::Int => write!(f, "{}", v.as_int().unwrap()),
+        ValueTag::Float => write!(f, "{}", v.as_float().unwrap()),
         // Quoted (Rust debug form) so strings are unambiguous — `"true"` vs the
         // bool `true`, `"42"` vs the int `42` — and so control characters are
         // escaped, keeping each value on one line (can't forge a fake `key:`).
-        ValueView::String(s) => write!(f, "{s:?}"),
-        ValueView::File(file) => {
-            write!(
-                f,
-                "<file {}, {}>",
-                file.mimetype,
-                human_size(file.data.len() as u64)
-            )
+        ValueTag::String => write!(f, "{:?}", v.as_str().unwrap()),
+        ValueTag::File => {
+            let (mimetype, len) = v.as_file_summary().unwrap();
+            write!(f, "<file {mimetype}, {}>", human_size(len))
         }
-        ValueView::Array(a) => {
-            write!(
-                f,
-                "<array {:?} {:?}, {}>",
-                a.dtype,
-                a.shape,
-                human_size(a.data.len() as u64)
-            )
+        ValueTag::Array => {
+            let (dtype, shape, len) = v.as_array_summary().unwrap();
+            write!(f, "<array {dtype:?} {shape:?}, {}>", human_size(len))
         }
-        ValueView::Object(entries) if entries.is_empty() => f.write_str("{}"),
-        ValueView::List(items) if items.is_empty() => f.write_str("[]"),
-        ValueView::Object(entries) => {
-            for (i, (key, val)) in entries.iter().enumerate() {
+        ValueTag::Object => {
+            let entries: Vec<_> = v.object_entries().unwrap().collect();
+            if entries.is_empty() {
+                return f.write_str("{}");
+            }
+            for (i, (key, val)) in entries.into_iter().enumerate() {
                 // Root-level first entry has no leading newline (avoids a blank
                 // line); everything else starts a fresh indented line.
                 if indent == 0 && i == 0 {
@@ -84,7 +88,11 @@ fn fmt_view(f: &mut fmt::Formatter<'_>, v: &ValueView<'_>, indent: usize) -> fmt
             }
             Ok(())
         }
-        ValueView::List(items) => {
+        ValueTag::List => {
+            let items = v.as_list().unwrap();
+            if items.is_empty() {
+                return f.write_str("[]");
+            }
             for (i, item) in items.iter().enumerate() {
                 if indent == 0 && i == 0 {
                     f.write_str("-")?;
@@ -100,12 +108,12 @@ fn fmt_view(f: &mut fmt::Formatter<'_>, v: &ValueView<'_>, indent: usize) -> fmt
 
 /// Render a member value after its `key:` / `-` marker: blocks continue on the
 /// following indented lines, scalars stay inline after a single space.
-fn fmt_member(f: &mut fmt::Formatter<'_>, val: &ValueView<'_>, indent: usize) -> fmt::Result {
+fn fmt_member<T: ValueNode>(f: &mut fmt::Formatter<'_>, val: &T, indent: usize) -> fmt::Result {
     if is_block(val) {
-        fmt_view(f, val, indent)
+        fmt_node(f, val, indent)
     } else {
         f.write_str(" ")?;
-        fmt_view(f, val, indent)
+        fmt_node(f, val, indent)
     }
 }
 
@@ -119,6 +127,14 @@ mod tests {
         // The borrowed ValueView only needs to outlive the `format!` call, which
         // happens before `bytes` drops at the end of this statement.
         format!("{}", parse(&bytes).unwrap())
+    }
+
+    /// Owned `Value` and the parsed `ValueView` must render identically — the
+    /// walker is shared, this guards the two `Display` impls against drift.
+    fn assert_same_display(value: Value) {
+        let owned = format!("{}", value);
+        let viewed = display_of(value);
+        assert_eq!(owned, viewed, "owned vs viewed Display drift");
     }
 
     #[test]
@@ -206,6 +222,24 @@ mod tests {
             "value forged a line: {out:?}"
         );
         assert!(out.starts_with("note: \""), "{out:?}");
+    }
+
+    #[test]
+    fn owned_and_viewed_display_match() {
+        // Covers scalars, nested objects, lists, files and secrets in one tree.
+        assert_same_display(Value::Object(vec![
+            ("name".into(), Value::String("test".into())),
+            ("count".into(), Value::Int(3)),
+            (
+                "nested".into(),
+                Value::Object(vec![("flag".into(), Value::Bool(true))]),
+            ),
+            (
+                "items".into(),
+                Value::List(vec![Value::Int(1), Value::String("a".into())]),
+            ),
+            ("pw".into(), Value::secret("hunter2")),
+        ]));
     }
 
     #[test]

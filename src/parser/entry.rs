@@ -32,7 +32,7 @@ impl<'a> Parser<'a> for EntryParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ValueTag;
+    use crate::types::{ValueNode, ValueTag};
 
     #[test]
     fn test_parse_entry() {

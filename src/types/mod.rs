@@ -5,10 +5,16 @@ mod display;
 mod dtype;
 mod file;
 mod header;
+mod node;
+mod tag;
 mod value;
+mod view;
 
 pub use array::{Array, ArrayView};
 pub use dtype::DType;
 pub use file::{File, FileData, FileHandle, FileView};
 pub use header::{HEADER_SIZE, MAGIC, VERSION};
-pub use value::{Value, ValueTag, ValueView};
+pub use node::ValueNode;
+pub use tag::ValueTag;
+pub use value::Value;
+pub use view::ValueView;

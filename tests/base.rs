@@ -2,7 +2,9 @@
 //!
 //! These tests demonstrate the main use cases for the blobfig format.
 
-use blobfig::{Array, DType, File, FileHandle, HEADER_SIZE, MAGIC, VERSION, Value, parse, writer};
+use blobfig::{
+    Array, DType, File, FileHandle, HEADER_SIZE, MAGIC, VERSION, Value, ValueNode, parse, writer,
+};
 use std::io::{self, Read};
 
 // =============================================================================

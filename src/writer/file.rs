@@ -55,6 +55,7 @@ fn stream_from_handle<W: Write, R: Read + ?Sized>(
 mod tests {
     use super::*;
     use crate::parser::parse_value;
+    use crate::types::ValueNode;
     use parsicomb::{ByteCursor, Parser};
 
     #[test]
