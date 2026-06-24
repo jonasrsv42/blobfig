@@ -49,8 +49,8 @@ pub mod areamy_ext;
 pub use error::AccessError;
 pub use parser::parse;
 pub use types::{
-    Array, ArrayView, DType, File, FileData, FileHandle, FileView, HEADER_SIZE, MAGIC, VERSION,
-    Value, ValueNode, ValueTag, ValueView,
+    Array, ArrayView, DType, File, FileData, FileHandle, FileView, HEADER_SIZE, MAGIC, NodeView,
+    VERSION, Value, ValueTag, ValueView,
 };
 
 #[cfg(feature = "ndarray")]

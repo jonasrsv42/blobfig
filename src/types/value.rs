@@ -1,10 +1,10 @@
 //! Owned value type and the value tag shared with its borrowed counterpart.
 //!
 //! The borrowed [`ValueView`](super::ValueView) lives in `view.rs`; the read
-//! accessors common to both are on the [`ValueNode`](super::ValueNode) trait in
-//! `node.rs`.
+//! accessors common to both are on the [`NodeView`](super::NodeView) trait in
+//! `node_view.rs`.
 
-use super::{Array, DType, File, ValueNode, ValueTag};
+use super::{Array, DType, File, NodeView, ValueTag};
 
 /// What a secret value renders as when printed. Single source of truth so the
 /// `Value` and `ValueView` `Debug`/`Display` impls cannot drift apart.
@@ -39,7 +39,7 @@ impl Value {
 
     /// Object entries as a slice (sees through a secret wrapper). The borrowed
     /// counterpart's keys are `&str`; here they are owned `String`s, so this
-    /// stays inherent rather than living on [`ValueNode`].
+    /// stays inherent rather than living on [`NodeView`].
     pub fn as_object(&self) -> Option<&[(String, Value)]> {
         match self.peel_secret() {
             Value::Object(o) => Some(o),
@@ -48,7 +48,7 @@ impl Value {
     }
 }
 
-impl ValueNode for Value {
+impl NodeView for Value {
     type Array = Array;
     type File = File;
 

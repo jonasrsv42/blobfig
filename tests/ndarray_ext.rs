@@ -4,7 +4,7 @@
 
 #![cfg(feature = "ndarray")]
 
-use blobfig::{Array, File, Value, ValueNode, parse, writer};
+use blobfig::{Array, File, NodeView, Value, parse, writer};
 use ndarray::{ArrayD, IxDyn, array, s};
 
 // =============================================================================

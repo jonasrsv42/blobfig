@@ -57,7 +57,7 @@ pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParsicombError<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Value, ValueNode, ValueTag};
+    use crate::types::{NodeView, Value, ValueTag};
     use crate::writer;
 
     #[test]

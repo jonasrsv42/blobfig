@@ -1,13 +1,13 @@
 //! Borrowed value type — a zero-copy view over data in the underlying buffer.
 //!
 //! The owned [`Value`](super::Value) lives in `value.rs`; the read accessors
-//! common to both are on the [`ValueNode`](super::ValueNode) trait in `node.rs`.
+//! common to both are on the [`NodeView`](super::NodeView) trait in `node_view.rs`.
 //! `ValueView` additionally keeps inherent `as_str`/`string` that return
 //! `&'a str` (decoupled from the `&self` borrow) — its zero-copy superpower,
 //! which the trait's `&self`-bound signatures cannot express.
 
 use super::value::REDACTED;
-use super::{ArrayView, DType, FileView, Value, ValueNode, ValueTag};
+use super::{ArrayView, DType, FileView, NodeView, Value, ValueTag};
 use crate::error::AccessError;
 
 /// Parsed blobfig value - references data in the underlying buffer (zero-copy)
@@ -52,7 +52,7 @@ impl<'a> ValueView<'a> {
 
     /// Try to get as string, returning a borrow of the **underlying buffer**
     /// (`&'a str`), not one tied to `&self`. This decoupling is `ValueView`'s
-    /// zero-copy superpower; it shadows the `&self`-bound [`ValueNode::as_str`].
+    /// zero-copy superpower; it shadows the `&self`-bound [`NodeView::as_str`].
     pub fn as_str(&self) -> Option<&'a str> {
         match self.peel_secret() {
             ValueView::String(s) => Some(s),
@@ -62,7 +62,7 @@ impl<'a> ValueView<'a> {
 
     /// Get a string at path, returning a `&'a str` borrow of the underlying
     /// buffer (see [`as_str`](ValueView::as_str)). Shadows the `&self`-bound
-    /// [`ValueNode::string`].
+    /// [`NodeView::string`].
     pub fn string(&self, path: &str) -> Result<&'a str, AccessError> {
         let value = self.require(path)?;
         value.as_str().ok_or_else(|| value.mismatch(path, "string"))
@@ -70,7 +70,7 @@ impl<'a> ValueView<'a> {
 
     /// Object entries as a slice (sees through a secret wrapper). Keys borrow
     /// the underlying buffer (`&'a str`); the owned counterpart's keys are
-    /// `String`, so this stays inherent rather than living on [`ValueNode`].
+    /// `String`, so this stays inherent rather than living on [`NodeView`].
     pub fn as_object(&self) -> Option<&[(&'a str, ValueView<'a>)]> {
         match self.peel_secret() {
             ValueView::Object(o) => Some(o),
@@ -79,7 +79,7 @@ impl<'a> ValueView<'a> {
     }
 }
 
-impl<'a> ValueNode for ValueView<'a> {
+impl<'a> NodeView for ValueView<'a> {
     type Array = ArrayView<'a>;
     type File = FileView<'a>;
 
@@ -128,7 +128,7 @@ impl<'a> ValueNode for ValueView<'a> {
 
     // Trait `as_str` returns a `&self`-bound `&str`; `ValueView`'s inherent
     // `as_str` above returns the decoupled `&'a str` and shadows this for
-    // direct calls. This impl exists so generic `T: ValueNode` code works.
+    // direct calls. This impl exists so generic `T: NodeView` code works.
     fn as_str(&self) -> Option<&str> {
         match self.peel_secret() {
             ValueView::String(s) => Some(s),

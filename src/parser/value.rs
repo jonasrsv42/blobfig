@@ -80,7 +80,7 @@ impl<'a> Parser<'a> for ValueParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ValueNode;
+    use crate::types::NodeView;
 
     #[test]
     fn test_parse_bool_true() {

@@ -1,26 +1,47 @@
-//! Shared, ownership-agnostic accessors for [`Value`](super::Value) and
-//! [`ValueView`](super::ValueView).
+//! The view-like read interface shared by owned [`Value`](super::Value) and
+//! borrowed [`ValueView`](super::ValueView).
 //!
 //! The two are the same enum shape; they differ only in whether their payloads
 //! are owned (`String`, `Array`, …) or borrow the source buffer (`&str`,
-//! `ArrayView`, …). Path traversal (`get`, `bool`, `float`, …) and the
-//! `Display` tree-walker don't care about that distinction, so they live here
-//! once on the [`ValueNode`] trait. Each type supplies only the small,
+//! `ArrayView`, …). Reading a node by reference — peeking a leaf, walking a
+//! path, rendering it — doesn't care about that distinction, so it lives here
+//! once on the [`NodeView`] trait. Each type supplies only the small,
 //! variant-matching primitives; the traversal and the typed, path-aware
 //! accessors are provided by the trait.
 //!
-//! Bring the trait into scope (`use blobfig::ValueNode;`) to call these methods
+//! # The contract: this trait holds *only* view-like reads
+//!
+//! Every method here borrows (`&self`) and returns a borrow or a `Copy` scalar.
+//! That is the most either representation can promise in common: a `ValueView`
+//! owns nothing it could hand out, so move semantics are deliberately **not**
+//! here and cannot be added — a trait method body must work for both types, and
+//! a borrowed view could only satisfy an `into_*` by cloning, which would be a
+//! move-shaped lie. Ownership lives where it actually exists:
+//!
+//! - moving a payload *out* of an owned value → `into_*` / `remove` inherent on
+//!   [`Value`](super::Value) only;
+//! - materializing an owned copy *from* a borrowed view → `to_owned` inherent on
+//!   [`ValueView`](super::ValueView) (an honest clone, per the `to_*` convention).
+//!
+//! Two naming families, each internally honest: conversion of `self` is `as_*`
+//! (borrow) vs `into_*` (own); navigation by path (`get`, `float`, `string`, …)
+//! is always borrowing — you cannot move a leaf out of a structure you hold by
+//! reference, so the path family has no ownership axis to encode.
+//!
+//! Bring the trait into scope (`use blobfig::NodeView;`) to call these methods
 //! on either type.
 
 use super::{DType, ValueTag};
 use crate::error::AccessError;
 
-/// Read access shared by owned [`Value`](super::Value) and borrowed
-/// [`ValueView`](super::ValueView).
+/// The view-like read interface over a value node, implemented by owned
+/// [`Value`](super::Value) and borrowed [`ValueView`](super::ValueView).
 ///
-/// Implementors provide the variant-matching primitives; the path traversal and
-/// the typed `Result`-returning accessors come for free as provided methods.
-pub trait ValueNode: Sized {
+/// Holds only borrowing reads (see the module docs for why move semantics
+/// cannot live here). Implementors provide the variant-matching primitives; the
+/// path traversal and the typed `Result`-returning accessors come for free as
+/// provided methods.
+pub trait NodeView: Sized {
     /// The array payload: `Array` (owned) or `ArrayView<'a>` (borrowed).
     type Array;
     /// The file payload: `File` (owned) or `FileView<'a>` (borrowed).
@@ -58,7 +79,7 @@ pub trait ValueNode: Sized {
     /// `Display` can be written once. Does **not** peel secrets — callers that
     /// want to descend through a secret object peel first (see [`child`]).
     ///
-    /// [`child`]: ValueNode::child
+    /// [`child`]: NodeView::child
     fn object_entries(&self) -> Option<impl Iterator<Item = (&str, &Self)>>;
 
     /// `(mimetype, byte_len)` for a file leaf — the data `Display` summarizes

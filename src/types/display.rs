@@ -6,10 +6,10 @@
 //!   dumping their bytes.
 //!
 //! The layout is a simple YAML-ish indented tree. The walker is written once
-//! over [`ValueNode`] so owned [`Value`] and borrowed [`ValueView`] share it.
+//! over [`NodeView`] so owned [`Value`] and borrowed [`ValueView`] share it.
 
 use super::value::REDACTED;
-use super::{Value, ValueNode, ValueTag, ValueView};
+use super::{NodeView, Value, ValueTag, ValueView};
 use std::fmt;
 
 impl fmt::Display for Value {
@@ -26,7 +26,7 @@ impl<'a> fmt::Display for ValueView<'a> {
 
 /// True for non-empty containers, which render across multiple indented lines.
 /// Secrets are never blocks — they redact inline.
-fn is_block<T: ValueNode>(v: &T) -> bool {
+fn is_block<T: NodeView>(v: &T) -> bool {
     match v.tag() {
         ValueTag::Object => v.object_entries().is_some_and(|mut e| e.next().is_some()),
         ValueTag::List => v.as_list().is_some_and(|items| !items.is_empty()),
@@ -49,7 +49,7 @@ fn human_size(bytes: u64) -> String {
     }
 }
 
-fn fmt_node<T: ValueNode>(f: &mut fmt::Formatter<'_>, v: &T, indent: usize) -> fmt::Result {
+fn fmt_node<T: NodeView>(f: &mut fmt::Formatter<'_>, v: &T, indent: usize) -> fmt::Result {
     // Match on the tag so this stays exhaustive — a new variant won't silently
     // render as nothing. The tag selects the arm, so each accessor below is
     // guaranteed `Some` (the `as_*` peel secrets, but a `Secret` tag is handled
@@ -108,7 +108,7 @@ fn fmt_node<T: ValueNode>(f: &mut fmt::Formatter<'_>, v: &T, indent: usize) -> f
 
 /// Render a member value after its `key:` / `-` marker: blocks continue on the
 /// following indented lines, scalars stay inline after a single space.
-fn fmt_member<T: ValueNode>(f: &mut fmt::Formatter<'_>, val: &T, indent: usize) -> fmt::Result {
+fn fmt_member<T: NodeView>(f: &mut fmt::Formatter<'_>, val: &T, indent: usize) -> fmt::Result {
     if is_block(val) {
         fmt_node(f, val, indent)
     } else {
