@@ -2,6 +2,13 @@
 //! ([`Object`]) or borrowed ([`ObjectView`]). Read generically through
 //! [`ObjectNode`](super::ObjectNode): borrow the entries in place with
 //! `entries`, or consume the object with [`IntoIterator`] to move them out.
+//!
+//! The concrete types also `Deref` to their entry storage — the owned
+//! [`Object`] to its `Vec` (and `DerefMut`, so it can be built up in place), the
+//! borrowed [`ObjectView`] to a read-only slice — so direct code has the
+//! `Vec`-like ergonomics (`len`, indexing, `push`) alongside the trait accessors.
+
+use std::ops::{Deref, DerefMut};
 
 use super::node_view::ObjectNode;
 use super::{Value, ValueView};
@@ -15,15 +22,18 @@ impl Object {
     pub fn new(entries: Vec<(String, Value)>) -> Self {
         Object(entries)
     }
+}
 
-    /// Number of entries.
-    pub fn len(&self) -> usize {
-        self.0.len()
+impl Deref for Object {
+    type Target = Vec<(String, Value)>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
+}
 
-    /// Whether the object has no entries.
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+impl DerefMut for Object {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -66,15 +76,12 @@ impl<'a> ObjectView<'a> {
     pub fn new(entries: Vec<(&'a str, ValueView<'a>)>) -> Self {
         ObjectView(entries)
     }
+}
 
-    /// Number of entries.
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Whether the object has no entries.
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+impl<'a> Deref for ObjectView<'a> {
+    type Target = [(&'a str, ValueView<'a>)];
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -103,5 +110,27 @@ impl<'a> ObjectNode for ObjectView<'a> {
 impl<'a> std::fmt::Debug for ObjectView<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owned_object_derefs_to_its_entries_and_is_mutable() {
+        let mut object = Object::new(vec![("a".to_owned(), Value::Int(1))]);
+        assert_eq!(object.len(), 1); // Deref -> Vec::len
+        assert_eq!(object[0].0, "a"); // Deref -> indexing
+        object.push(("b".to_owned(), Value::Int(2))); // DerefMut -> Vec::push
+        assert_eq!(object.len(), 2);
+        assert_eq!(object[1].0, "b");
+    }
+
+    #[test]
+    fn borrowed_object_view_derefs_to_a_read_only_slice() {
+        let view = ObjectView::new(vec![("k", ValueView::Int(1))]);
+        assert_eq!(view.len(), 1);
+        assert_eq!(view[0].0, "k");
     }
 }

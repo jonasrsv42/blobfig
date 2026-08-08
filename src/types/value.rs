@@ -36,6 +36,18 @@ impl Value {
     pub fn secret(value: impl Into<Value>) -> Value {
         Value::Secret(Box::new(value.into()))
     }
+
+    /// An object value from its `(key, value)` entries — shorthand for
+    /// `Value::Object(Object::new(entries))`.
+    pub fn object(entries: Vec<(String, Value)>) -> Value {
+        Value::Object(Object::new(entries))
+    }
+
+    /// A list value from its items — shorthand for
+    /// `Value::List(List::new(items))`.
+    pub fn list(items: Vec<Value>) -> Value {
+        Value::List(List::new(items))
+    }
 }
 
 impl NodeView for Value {

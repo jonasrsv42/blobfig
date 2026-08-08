@@ -70,6 +70,18 @@ impl<'a> ValueView<'a> {
         let value = self.require(path)?;
         value.as_str().ok_or_else(|| value.mismatch(path, "string"))
     }
+
+    /// An object view from its `(key, value)` entries — shorthand for
+    /// `ValueView::Object(ObjectView::new(entries))`.
+    pub fn object(entries: Vec<(&'a str, ValueView<'a>)>) -> ValueView<'a> {
+        ValueView::Object(ObjectView::new(entries))
+    }
+
+    /// A list view from its items — shorthand for
+    /// `ValueView::List(ListView::new(items))`.
+    pub fn list(items: Vec<ValueView<'a>>) -> ValueView<'a> {
+        ValueView::List(ListView::new(items))
+    }
 }
 
 /// Materialize a borrowed view into an owned [`Value`] by cloning out of the

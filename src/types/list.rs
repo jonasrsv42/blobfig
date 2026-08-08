@@ -2,8 +2,13 @@
 //! ([`ListView`]). Read generically through [`ListNode`](super::ListNode):
 //! borrow the items in place with `items`, or consume the list with
 //! [`IntoIterator`] to move them out.
+//!
+//! The concrete types also `Deref` to their item storage — the owned [`List`]
+//! to its `Vec` (and `DerefMut`, so it can be built up in place), the borrowed
+//! [`ListView`] to a read-only slice — so direct code has the `Vec`-like
+//! ergonomics (`len`, indexing, `push`) alongside the trait accessors.
 
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use super::node_view::ListNode;
 use super::{Value, ValueView};
@@ -25,12 +30,16 @@ impl From<Vec<Value>> for List {
     }
 }
 
-// Deref to the items slice, so `len`/`is_empty`/`iter`/indexing read like a
-// slice without re-exposing the `Vec`.
 impl Deref for List {
-    type Target = [Value];
+    type Target = Vec<Value>;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for List {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -117,5 +126,27 @@ impl<'a> ListNode for ListView<'a> {
 impl<'a> std::fmt::Debug for ListView<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::NodeView;
+
+    #[test]
+    fn owned_list_derefs_to_its_items_and_is_mutable() {
+        let mut list = List::new(vec![Value::Int(1)]);
+        assert_eq!(list.len(), 1); // Deref -> Vec::len
+        assert_eq!(list[0].as_int(), Some(1)); // Deref -> indexing
+        list.push(Value::Int(2)); // DerefMut -> Vec::push
+        assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn borrowed_list_view_derefs_to_a_read_only_slice() {
+        let view = ListView::new(vec![ValueView::Int(9)]);
+        assert_eq!(view.len(), 1);
+        assert_eq!(view[0].as_int(), Some(9));
     }
 }
