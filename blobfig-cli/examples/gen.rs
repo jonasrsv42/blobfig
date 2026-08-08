@@ -1,6 +1,6 @@
-use blobfig::{File, Value, writer};
+use blobfig::{File, Object, Value, writer};
 fn main() {
-    let cfg = Value::Object(vec![
+    let cfg = Value::Object(Object::new(vec![
         ("version".into(), Value::Int(1)),
         ("user".into(), Value::String("alice".into())),
         ("password".into(), Value::secret("hunter2")),
@@ -10,12 +10,12 @@ fn main() {
         ),
         (
             "db".into(),
-            Value::secret(Value::Object(vec![
+            Value::secret(Value::Object(Object::new(vec![
                 ("host".into(), Value::String("db.internal".into())),
                 ("token".into(), Value::String("s3cr3t".into())),
-            ])),
+            ]))),
         ),
-    ]);
+    ]));
     let bytes = writer::to_bytes(cfg).unwrap();
     std::fs::write("/tmp/sample.blobfig", bytes).unwrap();
 }
