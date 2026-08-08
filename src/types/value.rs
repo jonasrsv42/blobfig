@@ -4,7 +4,7 @@
 //! accessors common to both are on the [`NodeView`](super::NodeView) trait in
 //! `node_view.rs`.
 
-use super::{Array, File, NodeView, ValueTag};
+use super::{Array, File, List, NodeView, Object, ValueTag};
 
 /// What a secret value renders as when printed. Single source of truth so the
 /// `Value` and `ValueView` `Debug`/`Display` impls cannot drift apart.
@@ -18,8 +18,8 @@ pub enum Value {
     String(String),
     Array(Array),
     File(File),
-    Object(Vec<(String, Value)>),
-    List(Vec<Value>),
+    Object(Object),
+    List(List),
     /// A value marked secret: prints as `<redacted>`, but is otherwise a normal
     /// value (stored in plaintext on the wire — this is redaction, not encryption).
     Secret(Box<Value>),
@@ -36,21 +36,13 @@ impl Value {
     pub fn secret(value: impl Into<Value>) -> Value {
         Value::Secret(Box::new(value.into()))
     }
-
-    /// Object entries as a slice (sees through a secret wrapper). The borrowed
-    /// counterpart's keys are `&str`; here they are owned `String`s, so this
-    /// stays inherent rather than living on [`NodeView`].
-    pub fn as_object(&self) -> Option<&[(String, Value)]> {
-        match self.peel_secret() {
-            Value::Object(o) => Some(o),
-            _ => None,
-        }
-    }
 }
 
 impl NodeView for Value {
     type Array = Array;
     type File = File;
+    type Object = Object;
+    type List = List;
 
     fn tag(&self) -> ValueTag {
         match self {
@@ -116,17 +108,53 @@ impl NodeView for Value {
         }
     }
 
-    fn as_list(&self) -> Option<&[Self]> {
+    fn as_object(&self) -> Option<&Object> {
+        match self.peel_secret() {
+            Value::Object(o) => Some(o),
+            _ => None,
+        }
+    }
+
+    fn as_list(&self) -> Option<&List> {
         match self.peel_secret() {
             Value::List(l) => Some(l),
             _ => None,
         }
     }
+}
 
-    fn object_entries(&self) -> Option<impl Iterator<Item = (&str, &Self)>> {
-        match self {
-            Value::Object(entries) => Some(entries.iter().map(|(k, v)| (k.as_str(), v))),
-            _ => None,
+impl TryFrom<Value> for Object {
+    type Error = Value;
+
+    /// Detach an owned object, moving it out — seeing through `Secret` wrappers
+    /// like every other typed accessor. A value that isn't an object is handed
+    /// back **with its secret wrapper intact**, so a failed detach never strips
+    /// the redaction guard from a value the caller still holds.
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Object(object) => Ok(object),
+            Value::Secret(inner) => {
+                Object::try_from(*inner).map_err(|inner| Value::Secret(Box::new(inner)))
+            }
+            other => Err(other),
+        }
+    }
+}
+
+impl TryFrom<Value> for List {
+    type Error = Value;
+
+    /// Detach an owned list, moving it out — seeing through `Secret` wrappers
+    /// like every other typed accessor. A value that isn't a list is handed back
+    /// **with its secret wrapper intact**, so a failed detach never strips the
+    /// redaction guard from a value the caller still holds.
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::List(list) => Ok(list),
+            Value::Secret(inner) => {
+                List::try_from(*inner).map_err(|inner| Value::Secret(Box::new(inner)))
+            }
+            other => Err(other),
         }
     }
 }
@@ -204,10 +232,10 @@ mod tests {
 
     #[test]
     fn value_secret_only_redacts_the_secret() {
-        let v = Value::Object(vec![
+        let v = Value::Object(Object::new(vec![
             ("user".into(), Value::String("visible".into())),
             ("password".into(), Value::secret("hidden")),
-        ]);
+        ]));
         let dbg = format!("{:?}", v);
         assert!(dbg.contains("visible"), "{dbg}");
         assert!(!dbg.contains("hidden"), "secret leaked: {dbg}");
@@ -223,10 +251,10 @@ mod tests {
     #[test]
     fn nested_secret_never_recurses() {
         // A secret wrapping a whole object must not format any inner field.
-        let v = Value::secret(Value::Object(vec![
+        let v = Value::secret(Value::Object(Object::new(vec![
             ("host".into(), Value::String("db.internal".into())),
             ("pw".into(), Value::String("s3cr3t".into())),
-        ]));
+        ])));
         let dbg = format!("{:#?}", v);
         assert_eq!(dbg, "<redacted>");
         assert!(!dbg.contains("db.internal") && !dbg.contains("s3cr3t"));
@@ -245,14 +273,14 @@ mod tests {
 
     #[test]
     fn owned_value_path_accessors() {
-        // The path API now works directly on an owned `Value`, no round-trip.
-        let v = Value::Object(vec![(
+        // The path API works directly on an owned `Value`, no round-trip.
+        let v = Value::Object(Object::new(vec![(
             "audio".into(),
-            Value::Object(vec![(
+            Value::Object(Object::new(vec![(
                 "speaker".into(),
-                Value::Object(vec![("volume".into(), Value::Float(0.8))]),
-            )]),
-        )]);
+                Value::Object(Object::new(vec![("volume".into(), Value::Float(0.8))])),
+            )])),
+        )]));
         assert_eq!(v.float("audio/speaker/volume").unwrap(), 0.8);
         assert!(v.get("audio/speaker/missing").is_none());
         assert!(v.string("audio/speaker/volume").is_err());
@@ -260,13 +288,56 @@ mod tests {
 
     #[test]
     fn owned_value_path_sees_through_secret() {
-        let v = Value::Object(vec![(
+        let v = Value::Object(Object::new(vec![(
             "db".into(),
-            Value::secret(Value::Object(vec![(
+            Value::secret(Value::Object(Object::new(vec![(
                 "password".into(),
                 Value::String("s3cr3t".into()),
-            )])),
-        )]);
+            )]))),
+        )]));
         assert_eq!(v.string("db/password").unwrap(), "s3cr3t");
+    }
+
+    #[test]
+    fn a_secret_wrapped_object_detaches_through_the_secret() {
+        // Consuming detach sees through `Secret`, like every borrowing accessor.
+        let value = Value::secret(Value::Object(Object::new(vec![(
+            "k".to_owned(),
+            Value::Int(1),
+        )])));
+        let object = Object::try_from(value).expect("detaches through the secret");
+        assert_eq!(object.len(), 1);
+    }
+
+    #[test]
+    fn a_failed_detach_returns_the_node_with_its_secret_intact() {
+        // A secret-wrapped non-object, tried as an object, comes back unchanged
+        // — still redacting, so a failed detach never strips the guard.
+        let value = Value::secret("top-secret");
+        let Err(returned) = Object::try_from(value) else {
+            panic!("a string is not an object");
+        };
+        assert_eq!(format!("{returned:?}"), "<redacted>");
+        assert_eq!(returned.as_str(), Some("top-secret"));
+    }
+
+    #[test]
+    fn try_object_then_list_classifies_a_secret_container() {
+        // The canonical consuming shape: try object, else list, else leaf. A
+        // secret-wrapped container classifies by its inner type, not as a leaf.
+        fn shape<Node: NodeView>(node: Node) -> &'static str {
+            match TryInto::<Node::Object>::try_into(node) {
+                Ok(_) => "object",
+                Err(node) => match TryInto::<Node::List>::try_into(node) {
+                    Ok(_) => "list",
+                    Err(_) => "leaf",
+                },
+            }
+        }
+        assert_eq!(
+            shape(Value::secret(Value::List(List::new(vec![Value::Int(1)])))),
+            "list",
+        );
+        assert_eq!(shape(Value::Int(7)), "leaf");
     }
 }

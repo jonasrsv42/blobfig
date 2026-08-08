@@ -3,7 +3,8 @@
 //! These tests demonstrate the main use cases for the blobfig format.
 
 use blobfig::{
-    Array, DType, File, FileHandle, HEADER_SIZE, MAGIC, NodeView, VERSION, Value, parse, writer,
+    Array, DType, File, FileHandle, HEADER_SIZE, List, MAGIC, NodeView, Object, ObjectNode,
+    VERSION, Value, parse, writer,
 };
 use std::io::{self, Read};
 
@@ -166,42 +167,43 @@ fn roundtrip_file_streaming() {
 
 #[test]
 fn roundtrip_object() {
-    let value = Value::Object(vec![
+    let value = Value::Object(Object::new(vec![
         ("name".into(), Value::String("test-config".into())),
         ("version".into(), Value::Int(1)),
         ("enabled".into(), Value::Bool(true)),
         ("threshold".into(), Value::Float(0.95)),
-    ]);
+    ]));
 
     let encoded = writer::to_bytes(value).unwrap();
     let parsed = parse(&encoded).unwrap();
 
     let obj = parsed.as_object().unwrap();
     assert_eq!(obj.len(), 4);
-    assert_eq!(obj[0].0, "name");
-    assert_eq!(obj[0].1.as_str(), Some("test-config"));
-    assert_eq!(obj[1].1.as_int(), Some(1));
-    assert_eq!(obj[2].1.as_bool(), Some(true));
+    let entries: Vec<_> = obj.entries().collect();
+    assert_eq!(entries[0].0, "name");
+    assert_eq!(entries[0].1.as_str(), Some("test-config"));
+    assert_eq!(entries[1].1.as_int(), Some(1));
+    assert_eq!(entries[2].1.as_bool(), Some(true));
 }
 
 #[test]
 fn roundtrip_nested_object() {
-    let value = Value::Object(vec![
+    let value = Value::Object(Object::new(vec![
         (
             "model".into(),
-            Value::Object(vec![
+            Value::Object(Object::new(vec![
                 ("name".into(), Value::String("bert-base".into())),
                 ("layers".into(), Value::Int(12)),
-            ]),
+            ])),
         ),
         (
             "training".into(),
-            Value::Object(vec![
+            Value::Object(Object::new(vec![
                 ("epochs".into(), Value::Int(100)),
                 ("learning_rate".into(), Value::Float(0.001)),
-            ]),
+            ])),
         ),
-    ]);
+    ]));
 
     let encoded = writer::to_bytes(value).unwrap();
     let parsed = parse(&encoded).unwrap();
@@ -217,13 +219,13 @@ fn roundtrip_nested_object() {
 
 #[test]
 fn roundtrip_list() {
-    let value = Value::List(vec![
+    let value = Value::List(List::new(vec![
         Value::Int(1),
         Value::Int(2),
         Value::Int(3),
         Value::String("four".into()),
         Value::Bool(true),
-    ]);
+    ]));
 
     let encoded = writer::to_bytes(value).unwrap();
     let parsed = parse(&encoded).unwrap();
@@ -246,7 +248,7 @@ fn ml_config_use_case() {
     let mean_values: Vec<f32> = vec![0.485, 0.456, 0.406];
     let std_values: Vec<f32> = vec![0.229, 0.224, 0.225];
 
-    let config = Value::Object(vec![
+    let config = Value::Object(Object::new(vec![
         ("version".into(), Value::Int(1)),
         (
             "model_type".into(),
@@ -261,7 +263,7 @@ fn ml_config_use_case() {
         ),
         (
             "preprocessing".into(),
-            Value::Object(vec![
+            Value::Object(Object::new(vec![
                 (
                     "mean".into(),
                     Value::Array(Array::new(
@@ -278,17 +280,17 @@ fn ml_config_use_case() {
                         std_values.iter().flat_map(|f| f.to_le_bytes()).collect(),
                     )),
                 ),
-            ]),
+            ])),
         ),
         (
             "labels".into(),
-            Value::List(vec![
+            Value::List(List::new(vec![
                 Value::String("cat".into()),
                 Value::String("dog".into()),
                 Value::String("bird".into()),
-            ]),
+            ])),
         ),
-    ]);
+    ]));
 
     let encoded = writer::to_bytes(config).unwrap();
     let parsed = parse(&encoded).unwrap();
@@ -327,7 +329,7 @@ fn ml_config_use_case() {
 #[test]
 fn verify_zero_copy_parsing() {
     let content = b"This content should be zero-copy referenced";
-    let value = Value::Object(vec![
+    let value = Value::Object(Object::new(vec![
         (
             "data".into(),
             Value::String(String::from_utf8_lossy(content).into()),
@@ -336,7 +338,7 @@ fn verify_zero_copy_parsing() {
             "file".into(),
             Value::File(File::from_bytes("text/plain", content.to_vec())),
         ),
-    ]);
+    ]));
 
     let encoded = writer::to_bytes(value).unwrap();
     let parsed = parse(&encoded).unwrap();
@@ -396,7 +398,7 @@ fn empty_string() {
 
 #[test]
 fn empty_list() {
-    let value = Value::List(vec![]);
+    let value = Value::List(List::new(vec![]));
     let encoded = writer::to_bytes(value).unwrap();
     let parsed = parse(&encoded).unwrap();
     assert_eq!(parsed.as_list().unwrap().len(), 0);
@@ -404,7 +406,7 @@ fn empty_list() {
 
 #[test]
 fn empty_object() {
-    let value = Value::Object(vec![]);
+    let value = Value::Object(Object::new(vec![]));
     let encoded = writer::to_bytes(value).unwrap();
     let parsed = parse(&encoded).unwrap();
     assert_eq!(parsed.as_object().unwrap().len(), 0);
@@ -435,16 +437,16 @@ fn empty_file() {
 
 #[test]
 fn deeply_nested() {
-    let value = Value::Object(vec![(
+    let value = Value::Object(Object::new(vec![(
         "a".into(),
-        Value::Object(vec![(
+        Value::Object(Object::new(vec![(
             "b".into(),
-            Value::Object(vec![(
+            Value::Object(Object::new(vec![(
                 "c".into(),
-                Value::Object(vec![("d".into(), Value::Int(42))]),
-            )]),
-        )]),
-    )]);
+                Value::Object(Object::new(vec![("d".into(), Value::Int(42))])),
+            )])),
+        )])),
+    )]));
 
     let encoded = writer::to_bytes(value).unwrap();
     let parsed = parse(&encoded).unwrap();

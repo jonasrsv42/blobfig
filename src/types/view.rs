@@ -6,8 +6,9 @@
 //! `&'a str` (decoupled from the `&self` borrow) — its zero-copy superpower,
 //! which the trait's `&self`-bound signatures cannot express.
 
+use super::node_view::{ListNode, ObjectNode};
 use super::value::REDACTED;
-use super::{ArrayView, FileView, NodeView, Value, ValueTag};
+use super::{ArrayView, FileView, List, ListView, NodeView, Object, ObjectView, Value, ValueTag};
 use crate::error::AccessError;
 
 /// Parsed blobfig value - references data in the underlying buffer (zero-copy)
@@ -19,8 +20,8 @@ pub enum ValueView<'a> {
     String(&'a str),
     Array(ArrayView<'a>),
     File(FileView<'a>),
-    Object(Vec<(&'a str, ValueView<'a>)>),
-    List(Vec<ValueView<'a>>),
+    Object(ObjectView<'a>),
+    List(ListView<'a>),
     /// A value marked secret: prints as `<redacted>`. Programmatic access
     /// (`get` and the typed accessors) sees through it transparently — only
     /// printing is redacted. The bytes are stored in plaintext, not encrypted.
@@ -37,13 +38,15 @@ impl<'a> ValueView<'a> {
             ValueView::String(s) => Value::String((*s).to_string()),
             ValueView::Array(a) => Value::Array(a.to_owned()),
             ValueView::File(f) => Value::File(f.to_owned()),
-            ValueView::Object(entries) => Value::Object(
-                entries
-                    .iter()
-                    .map(|(k, v)| ((*k).to_string(), v.to_owned()))
+            ValueView::Object(object) => Value::Object(Object::new(
+                object
+                    .entries()
+                    .map(|(k, v)| (k.to_string(), v.to_owned()))
                     .collect(),
-            ),
-            ValueView::List(items) => Value::List(items.iter().map(|v| v.to_owned()).collect()),
+            )),
+            ValueView::List(list) => Value::List(List::new(
+                list.items().iter().map(|v| v.to_owned()).collect(),
+            )),
             // `(**inner)` reaches the inner `ValueView` so this calls the
             // inherent `to_owned`, not `ToOwned::to_owned` on the `Box`.
             ValueView::Secret(inner) => Value::Secret(Box::new((**inner).to_owned())),
@@ -67,16 +70,6 @@ impl<'a> ValueView<'a> {
         let value = self.require(path)?;
         value.as_str().ok_or_else(|| value.mismatch(path, "string"))
     }
-
-    /// Object entries as a slice (sees through a secret wrapper). Keys borrow
-    /// the underlying buffer (`&'a str`); the owned counterpart's keys are
-    /// `String`, so this stays inherent rather than living on [`NodeView`].
-    pub fn as_object(&self) -> Option<&[(&'a str, ValueView<'a>)]> {
-        match self.peel_secret() {
-            ValueView::Object(o) => Some(o),
-            _ => None,
-        }
-    }
 }
 
 /// Materialize a borrowed view into an owned [`Value`] by cloning out of the
@@ -93,6 +86,8 @@ impl<'a> From<ValueView<'a>> for Value {
 impl<'a> NodeView for ValueView<'a> {
     type Array = ArrayView<'a>;
     type File = FileView<'a>;
+    type Object = ObjectView<'a>;
+    type List = ListView<'a>;
 
     fn tag(&self) -> ValueTag {
         match self {
@@ -161,17 +156,53 @@ impl<'a> NodeView for ValueView<'a> {
         }
     }
 
-    fn as_list(&self) -> Option<&[Self]> {
+    fn as_object(&self) -> Option<&ObjectView<'a>> {
+        match self.peel_secret() {
+            ValueView::Object(o) => Some(o),
+            _ => None,
+        }
+    }
+
+    fn as_list(&self) -> Option<&ListView<'a>> {
         match self.peel_secret() {
             ValueView::List(l) => Some(l),
             _ => None,
         }
     }
+}
 
-    fn object_entries(&self) -> Option<impl Iterator<Item = (&str, &Self)>> {
-        match self {
-            ValueView::Object(entries) => Some(entries.iter().map(|(k, v)| (*k, v))),
-            _ => None,
+impl<'a> TryFrom<ValueView<'a>> for ObjectView<'a> {
+    type Error = ValueView<'a>;
+
+    /// Detach a borrowed object, moving the spine out — seeing through `Secret`
+    /// wrappers like every other typed accessor. A value that isn't an object is
+    /// handed back **with its secret wrapper intact**, so a failed detach never
+    /// strips the redaction guard.
+    fn try_from(value: ValueView<'a>) -> Result<Self, Self::Error> {
+        match value {
+            ValueView::Object(object) => Ok(object),
+            ValueView::Secret(inner) => {
+                ObjectView::try_from(*inner).map_err(|inner| ValueView::Secret(Box::new(inner)))
+            }
+            other => Err(other),
+        }
+    }
+}
+
+impl<'a> TryFrom<ValueView<'a>> for ListView<'a> {
+    type Error = ValueView<'a>;
+
+    /// Detach a borrowed list, moving the spine out — seeing through `Secret`
+    /// wrappers like every other typed accessor. A value that isn't a list is
+    /// handed back **with its secret wrapper intact**, so a failed detach never
+    /// strips the redaction guard.
+    fn try_from(value: ValueView<'a>) -> Result<Self, Self::Error> {
+        match value {
+            ValueView::List(list) => Ok(list),
+            ValueView::Secret(inner) => {
+                ListView::try_from(*inner).map_err(|inner| ValueView::Secret(Box::new(inner)))
+            }
+            other => Err(other),
         }
     }
 }
@@ -201,8 +232,11 @@ mod tests {
 
     #[test]
     fn a_view_materializes_into_an_owned_value() {
-        let bytes = writer::to_bytes(Value::Object(vec![("k".into(), Value::String("v".into()))]))
-            .expect("serialize");
+        let bytes = writer::to_bytes(Value::Object(Object::new(vec![(
+            "k".into(),
+            Value::String("v".into()),
+        )])))
+        .expect("serialize");
         let view = parse(&bytes).expect("parse");
         // `impl Into<Value>` on a view clones out of the buffer.
         let owned: Value = view.into();

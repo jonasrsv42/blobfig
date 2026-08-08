@@ -15,20 +15,20 @@
 //! # Example
 //!
 //! ```rust
-//! use blobfig::{Value, File, Array, DType, writer};
+//! use blobfig::{Value, File, Array, DType, Object, writer};
 //!
 //! // Build a config
-//! let config = Value::Object(vec![
+//! let config = Value::Object(Object::new(vec![
 //!     ("version".into(), Value::Int(1)),
 //!     ("model".into(), Value::File(
 //!         File::from_bytes("application/x-tflite", vec![/* model bytes */])
 //!     )),
-//!     ("stats".into(), Value::Object(vec![
+//!     ("stats".into(), Value::Object(Object::new(vec![
 //!         ("mean".into(), Value::Array(
 //!             Array::new(DType::F32, vec![80], vec![0u8; 320])
 //!         )),
-//!     ])),
-//! ]);
+//!     ]))),
+//! ]));
 //!
 //! // Write to bytes
 //! let bytes = writer::to_bytes(config).unwrap();
@@ -50,7 +50,8 @@ pub use error::AccessError;
 pub use parser::parse;
 pub use types::{
     Array, ArrayNode, ArrayView, DType, File, FileData, FileHandle, FileNode, FileView,
-    HEADER_SIZE, MAGIC, NodeView, VERSION, Value, ValueTag, ValueView,
+    HEADER_SIZE, List, ListNode, ListView, MAGIC, NodeView, Object, ObjectNode, ObjectView,
+    VERSION, Value, ValueTag, ValueView,
 };
 
 #[cfg(feature = "ndarray")]

@@ -9,7 +9,7 @@
 //! over [`NodeView`] so owned [`Value`] and borrowed [`ValueView`] share it.
 
 use super::value::REDACTED;
-use super::{ArrayNode, FileNode, NodeView, Value, ValueTag, ValueView};
+use super::{ArrayNode, FileNode, ListNode, NodeView, ObjectNode, Value, ValueTag, ValueView};
 use std::fmt;
 
 /// Rendered when a leaf's tag and its accessor disagree — a "can't happen"
@@ -33,8 +33,8 @@ impl<'a> fmt::Display for ValueView<'a> {
 /// Secrets are never blocks — they redact inline.
 fn is_block<T: NodeView>(v: &T) -> bool {
     match v.tag() {
-        ValueTag::Object => v.object_entries().is_some_and(|mut e| e.next().is_some()),
-        ValueTag::List => v.as_list().is_some_and(|items| !items.is_empty()),
+        ValueTag::Object => v.as_object().is_some_and(|o| o.entries().next().is_some()),
+        ValueTag::List => v.as_list().is_some_and(|l| !l.items().is_empty()),
         _ => false,
     }
 }
@@ -97,13 +97,13 @@ fn fmt_node<T: NodeView>(f: &mut fmt::Formatter<'_>, v: &T, indent: usize) -> fm
             None => f.write_str(DISPLAY_ERROR),
         },
         ValueTag::Object => {
-            let Some(entries) = v.object_entries().map(|e| e.collect::<Vec<_>>()) else {
+            let Some(object) = v.as_object() else {
                 return f.write_str(DISPLAY_ERROR);
             };
-            if entries.is_empty() {
+            if object.entries().next().is_none() {
                 return f.write_str("{}");
             }
-            for (i, (key, val)) in entries.into_iter().enumerate() {
+            for (i, (key, val)) in object.entries().enumerate() {
                 // Root-level first entry has no leading newline (avoids a blank
                 // line); everything else starts a fresh indented line.
                 if indent == 0 && i == 0 {
@@ -116,9 +116,10 @@ fn fmt_node<T: NodeView>(f: &mut fmt::Formatter<'_>, v: &T, indent: usize) -> fm
             Ok(())
         }
         ValueTag::List => {
-            let Some(items) = v.as_list() else {
+            let Some(list) = v.as_list() else {
                 return f.write_str(DISPLAY_ERROR);
             };
+            let items = list.items();
             if items.is_empty() {
                 return f.write_str("[]");
             }
@@ -149,7 +150,7 @@ fn fmt_member<T: NodeView>(f: &mut fmt::Formatter<'_>, val: &T, indent: usize) -
 #[cfg(test)]
 mod tests {
     use super::human_size;
-    use crate::{Value, parse, writer};
+    use crate::{List, Object, Value, parse, writer};
 
     fn display_of(value: Value) -> String {
         let bytes = writer::to_bytes(value).unwrap();
@@ -178,13 +179,13 @@ mod tests {
 
     #[test]
     fn object_is_indented_tree() {
-        let v = Value::Object(vec![
+        let v = Value::Object(Object::new(vec![
             ("name".into(), Value::String("test".into())),
             (
                 "nested".into(),
-                Value::Object(vec![("k".into(), Value::Int(1))]),
+                Value::Object(Object::new(vec![("k".into(), Value::Int(1))])),
             ),
-        ]);
+        ]));
         let out = display_of(v);
         // Root-level first entry has no leading blank line.
         assert!(out.starts_with("name: \"test\""), "{out:?}");
@@ -194,7 +195,7 @@ mod tests {
 
     #[test]
     fn secret_is_redacted_in_display() {
-        let v = Value::Object(vec![("pw".into(), Value::secret("hunter2"))]);
+        let v = Value::Object(Object::new(vec![("pw".into(), Value::secret("hunter2"))]));
         let out = display_of(v);
         assert!(out.contains("pw: <redacted>"), "{out:?}");
         assert!(!out.contains("hunter2"), "secret leaked: {out:?}");
@@ -202,13 +203,13 @@ mod tests {
 
     #[test]
     fn secret_object_subtree_redacted_in_display() {
-        let v = Value::Object(vec![(
+        let v = Value::Object(Object::new(vec![(
             "db".into(),
-            Value::secret(Value::Object(vec![(
+            Value::secret(Value::Object(Object::new(vec![(
                 "token".into(),
                 Value::String("s3cr3t".into()),
-            )])),
-        )]);
+            )]))),
+        )]));
         let out = display_of(v);
         assert!(out.contains("db: <redacted>"), "{out:?}");
         assert!(!out.contains("s3cr3t"), "secret leaked: {out:?}");
@@ -227,13 +228,13 @@ mod tests {
 
     #[test]
     fn empty_containers() {
-        assert_eq!(display_of(Value::Object(vec![])), "{}");
-        assert_eq!(display_of(Value::List(vec![])), "[]");
+        assert_eq!(display_of(Value::Object(Object::new(vec![]))), "{}");
+        assert_eq!(display_of(Value::List(List::new(vec![]))), "[]");
     }
 
     #[test]
     fn list_renders_with_dashes() {
-        let v = Value::List(vec![Value::Int(1), Value::String("a".into())]);
+        let v = Value::List(List::new(vec![Value::Int(1), Value::String("a".into())]));
         assert_eq!(display_of(v), "- 1\n- \"a\"");
     }
 
@@ -241,10 +242,10 @@ mod tests {
     fn control_chars_are_escaped_to_one_line() {
         // A value must not be able to forge a fake `key:` line by embedding a
         // newline. The escaped form stays on a single line.
-        let v = Value::Object(vec![(
+        let v = Value::Object(Object::new(vec![(
             "note".into(),
             Value::String("x\nadmin: true".into()),
-        )]);
+        )]));
         let out = display_of(v);
         assert!(
             !out.contains("\nadmin: true"),
@@ -256,19 +257,19 @@ mod tests {
     #[test]
     fn owned_and_viewed_display_match() {
         // Covers scalars, nested objects, lists, files and secrets in one tree.
-        assert_same_display(Value::Object(vec![
+        assert_same_display(Value::Object(Object::new(vec![
             ("name".into(), Value::String("test".into())),
             ("count".into(), Value::Int(3)),
             (
                 "nested".into(),
-                Value::Object(vec![("flag".into(), Value::Bool(true))]),
+                Value::Object(Object::new(vec![("flag".into(), Value::Bool(true))])),
             ),
             (
                 "items".into(),
-                Value::List(vec![Value::Int(1), Value::String("a".into())]),
+                Value::List(List::new(vec![Value::Int(1), Value::String("a".into())])),
             ),
             ("pw".into(), Value::secret("hunter2")),
-        ]));
+        ])));
     }
 
     #[test]

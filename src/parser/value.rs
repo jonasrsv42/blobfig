@@ -5,7 +5,7 @@ use super::entry::parse_entry;
 use super::file::parse_file_body;
 use super::primitives::{f64_le, i64_le, u8_parser, u32_le};
 use super::string::parse_string;
-use crate::types::{ValueTag, ValueView};
+use crate::types::{ListView, ObjectView, ValueTag, ValueView};
 use parsicomb::{ByteCursor, CodeLoc, Cursor, Parser, ParsicombError, ntimes};
 use std::borrow::Cow;
 
@@ -60,12 +60,12 @@ impl<'a> Parser<'a> for ValueParser {
             ValueTag::Object => {
                 let (n, cursor) = u32_le().parse(cursor)?;
                 let (entries, cursor) = ntimes(n as usize, parse_entry()).parse(cursor)?;
-                Ok((ValueView::Object(entries), cursor))
+                Ok((ValueView::Object(ObjectView::new(entries)), cursor))
             }
             ValueTag::List => {
                 let (n, cursor) = u32_le().parse(cursor)?;
                 let (items, cursor) = ntimes(n as usize, parse_value()).parse(cursor)?;
-                Ok((ValueView::List(items), cursor))
+                Ok((ValueView::List(ListView::new(items)), cursor))
             }
             ValueTag::Secret => {
                 // Transparent wrapper: parse the inner value and re-wrap it so
@@ -80,7 +80,7 @@ impl<'a> Parser<'a> for ValueParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::NodeView;
+    use crate::types::{NodeView, ObjectNode};
 
     #[test]
     fn test_parse_bool_true() {
@@ -181,10 +181,11 @@ mod tests {
 
         let obj = val.as_object().unwrap();
         assert_eq!(obj.len(), 2);
-        assert_eq!(obj[0].0, "name");
-        assert_eq!(obj[0].1.as_str(), Some("test"));
-        assert_eq!(obj[1].0, "count");
-        assert_eq!(obj[1].1.as_int(), Some(42));
+        let entries: Vec<_> = obj.entries().collect();
+        assert_eq!(entries[0].0, "name");
+        assert_eq!(entries[0].1.as_str(), Some("test"));
+        assert_eq!(entries[1].0, "count");
+        assert_eq!(entries[1].1.as_int(), Some(42));
     }
 
     #[test]

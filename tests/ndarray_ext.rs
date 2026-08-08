@@ -4,7 +4,7 @@
 
 #![cfg(feature = "ndarray")]
 
-use blobfig::{Array, File, NodeView, Value, parse, writer};
+use blobfig::{Array, File, List, NodeView, Object, Value, parse, writer};
 use ndarray::{ArrayD, IxDyn, array, s};
 
 // =============================================================================
@@ -61,15 +61,15 @@ fn image_preprocessing_config() {
     let mean = array![0.485f32, 0.456, 0.406].into_dyn();
     let std = array![0.229f32, 0.224, 0.225].into_dyn();
 
-    let config = Value::Object(vec![
+    let config = Value::Object(Object::new(vec![
         (
             "input_size".into(),
-            Value::List(vec![Value::Int(224), Value::Int(224)]),
+            Value::List(List::new(vec![Value::Int(224), Value::Int(224)])),
         ),
         ("channels".into(), Value::Int(3)),
         (
             "normalize".into(),
-            Value::Object(vec![
+            Value::Object(Object::new(vec![
                 (
                     "mean".into(),
                     Value::Array(Array::from_ndarray(mean).unwrap()),
@@ -78,9 +78,9 @@ fn image_preprocessing_config() {
                     "std".into(),
                     Value::Array(Array::from_ndarray(std).unwrap()),
                 ),
-            ]),
+            ])),
         ),
-    ]);
+    ]));
 
     let bytes = writer::to_bytes(config).unwrap();
     let parsed = parse(&bytes).unwrap();
@@ -117,7 +117,7 @@ fn layer_weights_config() {
     let bias = ArrayD::<f32>::zeros(IxDyn(&[64]));
     let expected_weights = weights.clone();
 
-    let layer = Value::Object(vec![
+    let layer = Value::Object(Object::new(vec![
         ("name".into(), Value::String("dense_1".into())),
         (
             "weights".into(),
@@ -128,7 +128,7 @@ fn layer_weights_config() {
             Value::Array(Array::from_ndarray(bias).unwrap()),
         ),
         ("activation".into(), Value::String("relu".into())),
-    ]);
+    ]));
 
     let bytes = writer::to_bytes(layer).unwrap();
     let parsed = parse(&bytes).unwrap();
@@ -161,7 +161,7 @@ fn complete_ml_artifact() {
     let expected_mean = mean.clone();
     let expected_embedding = embedding.clone();
 
-    let artifact = Value::Object(vec![
+    let artifact = Value::Object(Object::new(vec![
         ("version".into(), Value::Int(1)),
         (
             "model_type".into(),
@@ -173,7 +173,7 @@ fn complete_ml_artifact() {
         ),
         (
             "preprocessing".into(),
-            Value::Object(vec![
+            Value::Object(Object::new(vec![
                 (
                     "mean".into(),
                     Value::Array(Array::from_ndarray(mean).unwrap()),
@@ -184,9 +184,13 @@ fn complete_ml_artifact() {
                 ),
                 (
                     "input_shape".into(),
-                    Value::List(vec![Value::Int(224), Value::Int(224), Value::Int(3)]),
+                    Value::List(List::new(vec![
+                        Value::Int(224),
+                        Value::Int(224),
+                        Value::Int(3),
+                    ])),
                 ),
-            ]),
+            ])),
         ),
         (
             "embedding".into(),
@@ -194,13 +198,13 @@ fn complete_ml_artifact() {
         ),
         (
             "labels".into(),
-            Value::List(vec![
+            Value::List(List::new(vec![
                 Value::String("cat".into()),
                 Value::String("dog".into()),
                 Value::String("bird".into()),
-            ]),
+            ])),
         ),
-    ]);
+    ]));
 
     let bytes = writer::to_bytes(artifact).unwrap();
     let parsed = parse(&bytes).unwrap();
@@ -254,11 +258,11 @@ fn batch_of_samples() {
     let expected_x = x.clone();
     let expected_y = y.clone();
 
-    let batch = Value::Object(vec![
+    let batch = Value::Object(Object::new(vec![
         ("x".into(), Value::Array(Array::from_ndarray(x).unwrap())),
         ("y".into(), Value::Array(Array::from_ndarray(y).unwrap())),
         ("batch_size".into(), Value::Int(batch_size as i64)),
-    ]);
+    ]));
 
     let bytes = writer::to_bytes(batch).unwrap();
     let parsed = parse(&bytes).unwrap();
@@ -301,7 +305,7 @@ fn mixed_dtype_arrays() {
     let expected_i16 = i16_data.clone();
     let expected_f64 = f64_data.clone();
 
-    let config = Value::Object(vec![
+    let config = Value::Object(Object::new(vec![
         (
             "quantized_weights".into(),
             Value::Array(Array::from_ndarray(u8_data).unwrap()),
@@ -314,7 +318,7 @@ fn mixed_dtype_arrays() {
             "constants".into(),
             Value::Array(Array::from_ndarray(f64_data).unwrap()),
         ),
-    ]);
+    ]));
 
     let bytes = writer::to_bytes(config).unwrap();
     let parsed = parse(&bytes).unwrap();
@@ -359,7 +363,7 @@ fn tokenizer_with_embeddings() {
         ((idx[0] + idx[1]) % 100) as f32 / 100.0
     });
 
-    let config = Value::Object(vec![
+    let config = Value::Object(Object::new(vec![
         ("vocab_size".into(), Value::Int(vocab_size as i64)),
         ("embed_dim".into(), Value::Int(embed_dim as i64)),
         (
@@ -368,14 +372,14 @@ fn tokenizer_with_embeddings() {
         ),
         (
             "special_tokens".into(),
-            Value::Object(vec![
+            Value::Object(Object::new(vec![
                 ("pad".into(), Value::Int(0)),
                 ("unk".into(), Value::Int(1)),
                 ("bos".into(), Value::Int(2)),
                 ("eos".into(), Value::Int(3)),
-            ]),
+            ])),
         ),
-    ]);
+    ]));
 
     let bytes = writer::to_bytes(config).unwrap();
     let parsed = parse(&bytes).unwrap();

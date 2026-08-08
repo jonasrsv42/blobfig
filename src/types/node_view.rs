@@ -9,24 +9,26 @@
 //! variant-matching primitives; the traversal and the typed, path-aware
 //! accessors are provided by the trait.
 //!
-//! # The contract: this trait holds *only* view-like reads
+//! # The contract: the methods read; ownership rides on the supertraits
 //!
-//! Every method here borrows (`&self`) and returns a borrow or a `Copy` scalar.
-//! That is the most either representation can promise in common: a `ValueView`
-//! owns nothing it could hand out, so move semantics are deliberately **not**
-//! here and cannot be added — a trait method body must work for both types, and
-//! a borrowed view could only satisfy an `into_*` by cloning, which would be a
-//! move-shaped lie. Ownership lives where it actually exists:
+//! Every *method* here borrows (`&self`) and returns a borrow or a `Copy`
+//! scalar — the most either representation can promise in common, since a
+//! `ValueView` owns nothing a method could hand out. Moving is therefore never
+//! a method; it rides on supertrait bounds, each doing the cheapest thing per
+//! representation:
 //!
-//! - moving a payload *out* of an owned value → `into_*` / `remove` inherent on
-//!   [`Value`](super::Value) only;
-//! - materializing an owned copy *from* a borrowed view → `to_owned` inherent on
-//!   [`ValueView`](super::ValueView) (an honest clone, per the `to_*` convention).
+//! - materialize the whole node to an owned [`Value`](super::Value) →
+//!   [`Into<Value>`]: a move for an owned `Value`, a clone for a borrowed
+//!   `ValueView`.
+//! - detach a container payload → the [`TryInto`] supertraits: they move the
+//!   [`Object`](super::Object)/[`List`](super::List) out (through any `Secret`
+//!   wrapper), or hand the node back intact — secret and all — when it isn't
+//!   that container.
+//! - split a container into its entries/items → the payload's [`IntoIterator`],
+//!   moving them out in one pass.
 //!
-//! Two naming families, each internally honest: conversion of `self` is `as_*`
-//! (borrow) vs `into_*` (own); navigation by path (`get`, `float`, `string`, …)
-//! is always borrowing — you cannot move a leaf out of a structure you hold by
-//! reference, so the path family has no ownership axis to encode.
+//! Navigation by path (`get`, `float`, `string`, …) stays borrowing — you
+//! cannot move a leaf out of a structure you hold by reference.
 //!
 //! Bring the trait into scope (`use blobfig::NodeView;`) to call these methods
 //! on either type.
@@ -37,7 +39,7 @@ use crate::error::AccessError;
 /// The read interface over a file leaf, shared by owned [`File`](super::File)
 /// and borrowed [`FileView`](super::FileView). Bounds
 /// [`NodeView::File`](NodeView::File) so generic tree code can read a file's
-/// mimetype and size without naming the concrete payload.
+/// mimetype and size without naming the concrete type.
 pub trait FileNode {
     /// The file's mimetype.
     fn mimetype(&self) -> &str;
@@ -48,7 +50,7 @@ pub trait FileNode {
 /// The read interface over an array leaf, shared by owned
 /// [`Array`](super::Array) and borrowed [`ArrayView`](super::ArrayView). Bounds
 /// [`NodeView::Array`](NodeView::Array) so generic tree code can read an array's
-/// element type, shape, and raw bytes without naming the concrete payload.
+/// element type, shape, and raw bytes without naming the concrete type.
 pub trait ArrayNode {
     /// The element type.
     fn dtype(&self) -> DType;
@@ -56,6 +58,35 @@ pub trait ArrayNode {
     fn shape(&self) -> &[u64];
     /// The raw element bytes.
     fn data(&self) -> &[u8];
+}
+
+/// The read interface over an object payload, shared by owned
+/// [`Object`](super::Object) and borrowed [`ObjectView`](super::ObjectView).
+/// Bounds [`NodeView::Object`](NodeView::Object) so generic tree code can read
+/// an object's entries: [`entries`](Self::entries) borrows them in place, while
+/// consuming the object through its [`IntoIterator`] supertrait moves them out
+/// in one pass — from a borrowed object the spine moves while keys stay
+/// borrowed (`&'a str`).
+pub trait ObjectNode: IntoIterator<Item = (Self::Key, Self::Node)> {
+    /// The entry-value node: `Value` (owned) or `ValueView<'a>` (borrowed).
+    type Node: NodeView;
+    /// The key type when the object is consumed: `String` (owned) or `&'a str`
+    /// (borrowed — matched without a copy).
+    type Key: AsRef<str>;
+    /// Borrow the entries in order, keys uniformly as `&str`.
+    fn entries(&self) -> impl Iterator<Item = (&str, &Self::Node)>;
+}
+
+/// The read interface over a list payload, shared by owned [`List`](super::List)
+/// and borrowed [`ListView`](super::ListView). Bounds
+/// [`NodeView::List`](NodeView::List) so generic tree code can read a list's
+/// items: [`items`](Self::items) borrows them, while consuming the list through
+/// its [`IntoIterator`] supertrait moves them out.
+pub trait ListNode: IntoIterator<Item = Self::Node> {
+    /// The item node: `Value` (owned) or `ValueView<'a>` (borrowed).
+    type Node: NodeView;
+    /// Borrow the items in order.
+    fn items(&self) -> &[Self::Node];
 }
 
 /// The view-like read interface over a value node, implemented by owned
@@ -69,8 +100,20 @@ pub trait ArrayNode {
 /// Materialization to an owned value lives on the [`Into<Value>`] supertrait
 /// bound rather than as a method: every node can be turned into an owned
 /// [`Value`] at the cheapest cost its representation allows — a move for an
-/// already-owned `Value`, a clone for a borrowed `ValueView`.
-pub trait NodeView: Sized + Into<Value> {
+/// already-owned `Value`, a clone for a borrowed `ValueView`. The [`TryInto`]
+/// supertraits detach a container payload the same way: they move the
+/// [`Object`](super::Object)/[`List`](super::List) out (owned or borrowed),
+/// seeing through `Secret` wrappers like the read accessors do, or hand the node
+/// back intact — secret and all — via `Error = Self` when it isn't that
+/// container. That `Error` is a control-flow channel (the node you passed in),
+/// not an error type.
+///
+/// These supertrait bounds also seal the trait in practice: a new implementor
+/// must supply coherent [`Into<Value>`] and [`TryInto`] conversions against its
+/// own payload types, not merely the read methods.
+pub trait NodeView:
+    Sized + Into<Value> + TryInto<Self::Object, Error = Self> + TryInto<Self::List, Error = Self>
+{
     /// The array payload: `Array` (owned) or `ArrayView<'a>` (borrowed). Read
     /// through the [`ArrayNode`] interface, so generic code sees its dtype,
     /// shape, and bytes without naming the concrete type.
@@ -79,6 +122,13 @@ pub trait NodeView: Sized + Into<Value> {
     /// through the [`FileNode`] interface, so generic code sees its mimetype
     /// and size without naming the concrete type.
     type File: FileNode;
+    /// The object payload: `Object` (owned) or `ObjectView<'a>` (borrowed).
+    /// Read through the [`ObjectNode`] interface; its entries are themselves
+    /// `Self`, so traversal stays in one node type.
+    type Object: ObjectNode<Node = Self>;
+    /// The list payload: `List` (owned) or `ListView<'a>` (borrowed). Read
+    /// through the [`ListNode`] interface; its items are themselves `Self`.
+    type List: ListNode<Node = Self>;
 
     // =========================================================================
     // Primitives — implemented per type (small variant matches)
@@ -104,16 +154,10 @@ pub trait NodeView: Sized + Into<Value> {
     fn as_array(&self) -> Option<&Self::Array>;
     /// As a file (sees through a secret wrapper).
     fn as_file(&self) -> Option<&Self::File>;
+    /// As an object (sees through a secret wrapper).
+    fn as_object(&self) -> Option<&Self::Object>;
     /// As a list (sees through a secret wrapper).
-    fn as_list(&self) -> Option<&[Self]>;
-
-    /// Object entries as `(key, value)` pairs, hiding the key-type difference
-    /// (`&str` vs `String`) behind a uniform iterator so traversal and
-    /// `Display` can be written once. Does **not** peel secrets — callers that
-    /// want to descend through a secret object peel first (see [`child`]).
-    ///
-    /// [`child`]: NodeView::child
-    fn object_entries(&self) -> Option<impl Iterator<Item = (&str, &Self)>>;
+    fn as_list(&self) -> Option<&Self::List>;
 
     // =========================================================================
     // Provided — written once, shared by every implementor
@@ -123,7 +167,8 @@ pub trait NodeView: Sized + Into<Value> {
     /// sub-object can still be descended into.
     fn child(&self, key: &str) -> Option<&Self> {
         self.peel_secret()
-            .object_entries()?
+            .as_object()?
+            .entries()
             .find(|(k, _)| *k == key)
             .map(|(_, v)| v)
     }
