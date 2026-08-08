@@ -5,7 +5,7 @@ use super::entry::parse_entry;
 use super::file::parse_file_body;
 use super::primitives::{f64_le, i64_le, u8_parser, u32_le};
 use super::string::parse_string;
-use crate::types::{ListView, ObjectView, ValueTag, ValueView};
+use crate::types::{ValueTag, ValueView};
 use parsicomb::{ByteCursor, CodeLoc, Cursor, Parser, ParsicombError, ntimes};
 use std::borrow::Cow;
 
@@ -60,12 +60,12 @@ impl<'a> Parser<'a> for ValueParser {
             ValueTag::Object => {
                 let (n, cursor) = u32_le().parse(cursor)?;
                 let (entries, cursor) = ntimes(n as usize, parse_entry()).parse(cursor)?;
-                Ok((ValueView::Object(ObjectView::new(entries)), cursor))
+                Ok((ValueView::object(entries), cursor))
             }
             ValueTag::List => {
                 let (n, cursor) = u32_le().parse(cursor)?;
                 let (items, cursor) = ntimes(n as usize, parse_value()).parse(cursor)?;
-                Ok((ValueView::List(ListView::new(items)), cursor))
+                Ok((ValueView::list(items), cursor))
             }
             ValueTag::Secret => {
                 // Transparent wrapper: parse the inner value and re-wrap it so

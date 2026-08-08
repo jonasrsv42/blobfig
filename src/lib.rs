@@ -15,20 +15,20 @@
 //! # Example
 //!
 //! ```rust
-//! use blobfig::{Value, File, Array, DType, Object, writer};
+//! use blobfig::{Value, File, Array, DType, writer};
 //!
 //! // Build a config
-//! let config = Value::Object(Object::new(vec![
+//! let config = Value::object(vec![
 //!     ("version".into(), Value::Int(1)),
 //!     ("model".into(), Value::File(
 //!         File::from_bytes("application/x-tflite", vec![/* model bytes */])
 //!     )),
-//!     ("stats".into(), Value::Object(Object::new(vec![
+//!     ("stats".into(), Value::object(vec![
 //!         ("mean".into(), Value::Array(
 //!             Array::new(DType::F32, vec![80], vec![0u8; 320])
 //!         )),
-//!     ]))),
-//! ]));
+//!     ])),
+//! ]);
 //!
 //! // Write to bytes
 //! let bytes = writer::to_bytes(config).unwrap();

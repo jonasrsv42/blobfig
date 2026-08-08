@@ -57,7 +57,7 @@ pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParsicombError<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{List, NodeView, Object, ObjectNode, Value, ValueTag};
+    use crate::types::{NodeView, ObjectNode, Value, ValueTag};
     use crate::writer;
 
     #[test]
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_list() {
-        let value = Value::List(List::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)]));
+        let value = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
         let list = parsed.as_list().unwrap();
@@ -107,10 +107,10 @@ mod tests {
 
     #[test]
     fn test_roundtrip_object() {
-        let value = Value::Object(Object::new(vec![
+        let value = Value::object(vec![
             ("name".into(), Value::String("test".into())),
             ("count".into(), Value::Int(42)),
-        ]));
+        ]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 
@@ -125,22 +125,19 @@ mod tests {
 
     #[test]
     fn test_roundtrip_nested() {
-        let value = Value::Object(Object::new(vec![
+        let value = Value::object(vec![
             (
                 "config".into(),
-                Value::Object(Object::new(vec![
+                Value::object(vec![
                     ("enabled".into(), Value::Bool(true)),
                     ("threshold".into(), Value::Float(0.5)),
-                ])),
+                ]),
             ),
             (
                 "items".into(),
-                Value::List(List::new(vec![
-                    Value::String("a".into()),
-                    Value::String("b".into()),
-                ])),
+                Value::list(vec![Value::String("a".into()), Value::String("b".into())]),
             ),
-        ]));
+        ]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 
@@ -176,10 +173,10 @@ mod tests {
 
     #[test]
     fn test_secret_roundtrips_and_redacts() {
-        let value = Value::Object(Object::new(vec![
+        let value = Value::object(vec![
             ("user".into(), Value::String("alice".into())),
             ("password".into(), Value::secret("hunter2")),
-        ]));
+        ]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 
@@ -196,13 +193,13 @@ mod tests {
 
     #[test]
     fn test_secret_object_subtree_redacted_but_navigable() {
-        let value = Value::Object(Object::new(vec![(
+        let value = Value::object(vec![(
             "db".into(),
-            Value::secret(Value::Object(Object::new(vec![
+            Value::secret(Value::object(vec![
                 ("host".into(), Value::String("db.internal".into())),
                 ("password".into(), Value::String("s3cr3t".into())),
-            ]))),
-        )]));
+            ])),
+        )]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 
@@ -222,10 +219,7 @@ mod tests {
 
     #[test]
     fn test_secret_scalar_typed_access() {
-        let value = Value::Object(Object::new(vec![(
-            "port".into(),
-            Value::secret(Value::Int(5432)),
-        )]));
+        let value = Value::object(vec![("port".into(), Value::secret(Value::Int(5432)))]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 
@@ -236,10 +230,10 @@ mod tests {
 
     #[test]
     fn test_secret_in_list_redacts_only_element() {
-        let value = Value::List(List::new(vec![
+        let value = Value::list(vec![
             Value::String("public".into()),
             Value::secret("private"),
-        ]));
+        ]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 
@@ -254,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_secret_to_owned_preserves_redaction() {
-        let value = Value::Object(Object::new(vec![("k".into(), Value::secret("v"))]));
+        let value = Value::object(vec![("k".into(), Value::secret("v"))]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 
@@ -278,7 +272,7 @@ mod tests {
     fn test_secret_byte_identical_roundtrip() {
         // The secret marker travels on the wire, so re-serializing a parsed
         // secret produces the same bytes.
-        let value = Value::Object(Object::new(vec![("token".into(), Value::secret("abc123"))]));
+        let value = Value::object(vec![("token".into(), Value::secret("abc123"))]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
         let rebytes = writer::to_bytes(parsed.to_owned()).unwrap();
@@ -288,13 +282,13 @@ mod tests {
     #[test]
     fn test_secret_binary_blob_redacts_and_roundtrips() {
         use crate::types::File;
-        let value = Value::Object(Object::new(vec![(
+        let value = Value::object(vec![(
             "key".into(),
             Value::secret(Value::File(File::from_bytes(
                 "application/octet-stream",
                 vec![0xDE, 0xAD, 0xBE, 0xEF],
             ))),
-        )]));
+        )]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 
@@ -312,13 +306,13 @@ mod tests {
         // Documented semantic: typed access sees *through* a secret, so
         // `as_object()` on a secret object yields its (plaintext) children.
         // Marking a parent secret protects bulk printing, not explicit drill-in.
-        let value = Value::Object(Object::new(vec![(
+        let value = Value::object(vec![(
             "creds".into(),
-            Value::secret(Value::Object(Object::new(vec![(
+            Value::secret(Value::object(vec![(
                 "u".into(),
                 Value::String("admin".into()),
-            )]))),
-        )]));
+            )])),
+        )]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 
@@ -334,10 +328,7 @@ mod tests {
     #[test]
     fn test_type_mismatch_reports_inner_type_not_secret() {
         use crate::error::AccessError;
-        let value = Value::Object(Object::new(vec![(
-            "port".into(),
-            Value::secret(Value::Int(5432)),
-        )]));
+        let value = Value::object(vec![("port".into(), Value::secret(Value::Int(5432)))]);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 

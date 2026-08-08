@@ -244,10 +244,10 @@ mod tests {
 
     #[test]
     fn value_secret_only_redacts_the_secret() {
-        let v = Value::Object(Object::new(vec![
+        let v = Value::object(vec![
             ("user".into(), Value::String("visible".into())),
             ("password".into(), Value::secret("hidden")),
-        ]));
+        ]);
         let dbg = format!("{:?}", v);
         assert!(dbg.contains("visible"), "{dbg}");
         assert!(!dbg.contains("hidden"), "secret leaked: {dbg}");
@@ -263,10 +263,10 @@ mod tests {
     #[test]
     fn nested_secret_never_recurses() {
         // A secret wrapping a whole object must not format any inner field.
-        let v = Value::secret(Value::Object(Object::new(vec![
+        let v = Value::secret(Value::object(vec![
             ("host".into(), Value::String("db.internal".into())),
             ("pw".into(), Value::String("s3cr3t".into())),
-        ])));
+        ]));
         let dbg = format!("{:#?}", v);
         assert_eq!(dbg, "<redacted>");
         assert!(!dbg.contains("db.internal") && !dbg.contains("s3cr3t"));
@@ -286,13 +286,13 @@ mod tests {
     #[test]
     fn owned_value_path_accessors() {
         // The path API works directly on an owned `Value`, no round-trip.
-        let v = Value::Object(Object::new(vec![(
+        let v = Value::object(vec![(
             "audio".into(),
-            Value::Object(Object::new(vec![(
+            Value::object(vec![(
                 "speaker".into(),
-                Value::Object(Object::new(vec![("volume".into(), Value::Float(0.8))])),
-            )])),
-        )]));
+                Value::object(vec![("volume".into(), Value::Float(0.8))]),
+            )]),
+        )]);
         assert_eq!(v.float("audio/speaker/volume").unwrap(), 0.8);
         assert!(v.get("audio/speaker/missing").is_none());
         assert!(v.string("audio/speaker/volume").is_err());
@@ -300,23 +300,20 @@ mod tests {
 
     #[test]
     fn owned_value_path_sees_through_secret() {
-        let v = Value::Object(Object::new(vec![(
+        let v = Value::object(vec![(
             "db".into(),
-            Value::secret(Value::Object(Object::new(vec![(
+            Value::secret(Value::object(vec![(
                 "password".into(),
                 Value::String("s3cr3t".into()),
-            )]))),
-        )]));
+            )])),
+        )]);
         assert_eq!(v.string("db/password").unwrap(), "s3cr3t");
     }
 
     #[test]
     fn a_secret_wrapped_object_detaches_through_the_secret() {
         // Consuming detach sees through `Secret`, like every borrowing accessor.
-        let value = Value::secret(Value::Object(Object::new(vec![(
-            "k".to_owned(),
-            Value::Int(1),
-        )])));
+        let value = Value::secret(Value::object(vec![("k".to_owned(), Value::Int(1))]));
         let object = Object::try_from(value).expect("detaches through the secret");
         assert_eq!(object.len(), 1);
     }
@@ -347,7 +344,7 @@ mod tests {
             }
         }
         assert_eq!(
-            shape(Value::secret(Value::List(List::new(vec![Value::Int(1)])))),
+            shape(Value::secret(Value::list(vec![Value::Int(1)]))),
             "list",
         );
         assert_eq!(shape(Value::Int(7)), "leaf");

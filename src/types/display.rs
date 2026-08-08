@@ -150,7 +150,7 @@ fn fmt_member<T: NodeView>(f: &mut fmt::Formatter<'_>, val: &T, indent: usize) -
 #[cfg(test)]
 mod tests {
     use super::human_size;
-    use crate::{List, Object, Value, parse, writer};
+    use crate::{Value, parse, writer};
 
     fn display_of(value: Value) -> String {
         let bytes = writer::to_bytes(value).unwrap();
@@ -179,13 +179,13 @@ mod tests {
 
     #[test]
     fn object_is_indented_tree() {
-        let v = Value::Object(Object::new(vec![
+        let v = Value::object(vec![
             ("name".into(), Value::String("test".into())),
             (
                 "nested".into(),
-                Value::Object(Object::new(vec![("k".into(), Value::Int(1))])),
+                Value::object(vec![("k".into(), Value::Int(1))]),
             ),
-        ]));
+        ]);
         let out = display_of(v);
         // Root-level first entry has no leading blank line.
         assert!(out.starts_with("name: \"test\""), "{out:?}");
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn secret_is_redacted_in_display() {
-        let v = Value::Object(Object::new(vec![("pw".into(), Value::secret("hunter2"))]));
+        let v = Value::object(vec![("pw".into(), Value::secret("hunter2"))]);
         let out = display_of(v);
         assert!(out.contains("pw: <redacted>"), "{out:?}");
         assert!(!out.contains("hunter2"), "secret leaked: {out:?}");
@@ -203,13 +203,13 @@ mod tests {
 
     #[test]
     fn secret_object_subtree_redacted_in_display() {
-        let v = Value::Object(Object::new(vec![(
+        let v = Value::object(vec![(
             "db".into(),
-            Value::secret(Value::Object(Object::new(vec![(
+            Value::secret(Value::object(vec![(
                 "token".into(),
                 Value::String("s3cr3t".into()),
-            )]))),
-        )]));
+            )])),
+        )]);
         let out = display_of(v);
         assert!(out.contains("db: <redacted>"), "{out:?}");
         assert!(!out.contains("s3cr3t"), "secret leaked: {out:?}");
@@ -228,13 +228,13 @@ mod tests {
 
     #[test]
     fn empty_containers() {
-        assert_eq!(display_of(Value::Object(Object::new(vec![]))), "{}");
-        assert_eq!(display_of(Value::List(List::new(vec![]))), "[]");
+        assert_eq!(display_of(Value::object(vec![])), "{}");
+        assert_eq!(display_of(Value::list(vec![])), "[]");
     }
 
     #[test]
     fn list_renders_with_dashes() {
-        let v = Value::List(List::new(vec![Value::Int(1), Value::String("a".into())]));
+        let v = Value::list(vec![Value::Int(1), Value::String("a".into())]);
         assert_eq!(display_of(v), "- 1\n- \"a\"");
     }
 
@@ -242,10 +242,10 @@ mod tests {
     fn control_chars_are_escaped_to_one_line() {
         // A value must not be able to forge a fake `key:` line by embedding a
         // newline. The escaped form stays on a single line.
-        let v = Value::Object(Object::new(vec![(
+        let v = Value::object(vec![(
             "note".into(),
             Value::String("x\nadmin: true".into()),
-        )]));
+        )]);
         let out = display_of(v);
         assert!(
             !out.contains("\nadmin: true"),
@@ -257,19 +257,19 @@ mod tests {
     #[test]
     fn owned_and_viewed_display_match() {
         // Covers scalars, nested objects, lists, files and secrets in one tree.
-        assert_same_display(Value::Object(Object::new(vec![
+        assert_same_display(Value::object(vec![
             ("name".into(), Value::String("test".into())),
             ("count".into(), Value::Int(3)),
             (
                 "nested".into(),
-                Value::Object(Object::new(vec![("flag".into(), Value::Bool(true))])),
+                Value::object(vec![("flag".into(), Value::Bool(true))]),
             ),
             (
                 "items".into(),
-                Value::List(List::new(vec![Value::Int(1), Value::String("a".into())])),
+                Value::list(vec![Value::Int(1), Value::String("a".into())]),
             ),
             ("pw".into(), Value::secret("hunter2")),
-        ])));
+        ]));
     }
 
     #[test]

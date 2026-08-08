@@ -32,16 +32,16 @@ pub fn to_bytes(value: Value) -> io::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Array, DType, File, List, Object};
+    use crate::types::{Array, DType, File};
 
     #[test]
     fn test_write_primitives() {
-        let value = Value::Object(Object::new(vec![
+        let value = Value::object(vec![
             ("bool".to_string(), Value::Bool(true)),
             ("int".to_string(), Value::Int(42)),
             ("float".to_string(), Value::Float(2.5)),
             ("string".to_string(), Value::String("hello".to_string())),
-        ]));
+        ]);
 
         let bytes = to_bytes(value).unwrap();
 
@@ -55,10 +55,10 @@ mod tests {
 
     #[test]
     fn test_write_nested() {
-        let value = Value::Object(Object::new(vec![(
+        let value = Value::object(vec![(
             "outer".to_string(),
-            Value::Object(Object::new(vec![("inner".to_string(), Value::Int(123))])),
-        )]));
+            Value::object(vec![("inner".to_string(), Value::Int(123))]),
+        )]);
 
         let bytes = to_bytes(value).unwrap();
         assert!(!bytes.is_empty());
@@ -66,7 +66,7 @@ mod tests {
 
     #[test]
     fn test_write_list() {
-        let value = Value::List(List::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)]));
+        let value = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
 
         let bytes = to_bytes(value).unwrap();
         assert!(!bytes.is_empty());
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_key_with_slash_rejected() {
-        let value = Value::Object(Object::new(vec![("invalid/key".into(), Value::Int(1))]));
+        let value = Value::object(vec![("invalid/key".into(), Value::Int(1))]);
         let result = to_bytes(value);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains('/'));
@@ -134,10 +134,10 @@ mod tests {
 
     #[test]
     fn test_nested_key_with_slash_rejected() {
-        let value = Value::Object(Object::new(vec![(
+        let value = Value::object(vec![(
             "valid".into(),
-            Value::Object(Object::new(vec![("also/invalid".into(), Value::Int(1))])),
-        )]));
+            Value::object(vec![("also/invalid".into(), Value::Int(1))]),
+        )]);
         let result = to_bytes(value);
         assert!(result.is_err());
     }

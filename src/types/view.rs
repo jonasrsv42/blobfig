@@ -8,7 +8,7 @@
 
 use super::node_view::{ListNode, ObjectNode};
 use super::value::REDACTED;
-use super::{ArrayView, FileView, List, ListView, NodeView, Object, ObjectView, Value, ValueTag};
+use super::{ArrayView, FileView, ListView, NodeView, ObjectView, Value, ValueTag};
 use crate::error::AccessError;
 
 /// Parsed blobfig value - references data in the underlying buffer (zero-copy)
@@ -38,15 +38,15 @@ impl<'a> ValueView<'a> {
             ValueView::String(s) => Value::String((*s).to_string()),
             ValueView::Array(a) => Value::Array(a.to_owned()),
             ValueView::File(f) => Value::File(f.to_owned()),
-            ValueView::Object(object) => Value::Object(Object::new(
+            ValueView::Object(object) => Value::object(
                 object
                     .entries()
                     .map(|(k, v)| (k.to_string(), v.to_owned()))
                     .collect(),
-            )),
-            ValueView::List(list) => Value::List(List::new(
-                list.items().iter().map(|v| v.to_owned()).collect(),
-            )),
+            ),
+            ValueView::List(list) => {
+                Value::list(list.items().iter().map(|v| v.to_owned()).collect())
+            }
             // `(**inner)` reaches the inner `ValueView` so this calls the
             // inherent `to_owned`, not `ToOwned::to_owned` on the `Box`.
             ValueView::Secret(inner) => Value::Secret(Box::new((**inner).to_owned())),
@@ -244,11 +244,8 @@ mod tests {
 
     #[test]
     fn a_view_materializes_into_an_owned_value() {
-        let bytes = writer::to_bytes(Value::Object(Object::new(vec![(
-            "k".into(),
-            Value::String("v".into()),
-        )])))
-        .expect("serialize");
+        let bytes = writer::to_bytes(Value::object(vec![("k".into(), Value::String("v".into()))]))
+            .expect("serialize");
         let view = parse(&bytes).expect("parse");
         // `impl Into<Value>` on a view clones out of the buffer.
         let owned: Value = view.into();
