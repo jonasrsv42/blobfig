@@ -110,11 +110,11 @@ mod tests {
     #[test]
     fn test_parse_float() {
         let mut bytes = vec![ValueTag::Float as u8];
-        bytes.extend_from_slice(&3.14f64.to_le_bytes());
+        bytes.extend_from_slice(&2.5f64.to_le_bytes());
         let cursor = ByteCursor::new(&bytes);
         let (val, _) = parse_value().parse(cursor).unwrap();
         let f = val.as_float().unwrap();
-        assert!((f - 3.14).abs() < 1e-10);
+        assert!((f - 2.5).abs() < 1e-10);
     }
 
     #[test]

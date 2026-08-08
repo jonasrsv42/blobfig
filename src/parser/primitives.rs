@@ -100,10 +100,10 @@ mod tests {
 
     #[test]
     fn test_f64_le() {
-        let data = (3.14f64).to_le_bytes();
+        let data = (2.5f64).to_le_bytes();
         let cursor = ByteCursor::new(&data);
         let (val, _) = f64_le().parse(cursor).unwrap();
-        assert!((val - 3.14).abs() < 1e-10);
+        assert!((val - 2.5).abs() < 1e-10);
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! accessors common to both are on the [`NodeView`](super::NodeView) trait in
 //! `node_view.rs`.
 
-use super::{Array, DType, File, NodeView, ValueTag};
+use super::{Array, File, NodeView, ValueTag};
 
 /// What a secret value renders as when printed. Single source of truth so the
 /// `Value` and `ValueView` `Debug`/`Display` impls cannot drift apart.
@@ -126,20 +126,6 @@ impl NodeView for Value {
     fn object_entries(&self) -> Option<impl Iterator<Item = (&str, &Self)>> {
         match self {
             Value::Object(entries) => Some(entries.iter().map(|(k, v)| (k.as_str(), v))),
-            _ => None,
-        }
-    }
-
-    fn as_file_summary(&self) -> Option<(&str, u64)> {
-        match self.peel_secret() {
-            Value::File(f) => Some((&f.mimetype, f.size())),
-            _ => None,
-        }
-    }
-
-    fn as_array_summary(&self) -> Option<(DType, &[u64], u64)> {
-        match self.peel_secret() {
-            Value::Array(a) => Some((a.dtype, &a.shape, a.data.len() as u64)),
             _ => None,
         }
     }

@@ -9,8 +9,13 @@
 //! over [`NodeView`] so owned [`Value`] and borrowed [`ValueView`] share it.
 
 use super::value::REDACTED;
-use super::{NodeView, Value, ValueTag, ValueView};
+use super::{ArrayNode, FileNode, NodeView, Value, ValueTag, ValueView};
 use std::fmt;
+
+/// Rendered when a leaf's tag and its accessor disagree — a "can't happen"
+/// consistency break. Shown loudly (never a plausible `0`/`false`/`""`) so the
+/// drift is visible rather than silently formatted as real data.
+const DISPLAY_ERROR: &str = "<display_error>";
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -53,26 +58,48 @@ fn fmt_node<T: NodeView>(f: &mut fmt::Formatter<'_>, v: &T, indent: usize) -> fm
     // Match on the tag so this stays exhaustive — a new variant won't silently
     // render as nothing. The tag selects the arm, so each accessor below is
     // guaranteed `Some` (the `as_*` peel secrets, but a `Secret` tag is handled
-    // first, mirroring `Debug`'s redaction choke point).
+    // first, mirroring `Debug`'s redaction choke point). If the tag and its
+    // accessor ever disagree, each arm renders `DISPLAY_ERROR` rather than
+    // unwrapping — visible, and panic-free.
     match v.tag() {
         ValueTag::Secret => f.write_str(REDACTED),
-        ValueTag::Bool => write!(f, "{}", v.as_bool().unwrap()),
-        ValueTag::Int => write!(f, "{}", v.as_int().unwrap()),
-        ValueTag::Float => write!(f, "{}", v.as_float().unwrap()),
+        ValueTag::Bool => match v.as_bool() {
+            Some(b) => write!(f, "{b}"),
+            None => f.write_str(DISPLAY_ERROR),
+        },
+        ValueTag::Int => match v.as_int() {
+            Some(i) => write!(f, "{i}"),
+            None => f.write_str(DISPLAY_ERROR),
+        },
+        ValueTag::Float => match v.as_float() {
+            Some(x) => write!(f, "{x}"),
+            None => f.write_str(DISPLAY_ERROR),
+        },
         // Quoted (Rust debug form) so strings are unambiguous — `"true"` vs the
         // bool `true`, `"42"` vs the int `42` — and so control characters are
         // escaped, keeping each value on one line (can't forge a fake `key:`).
-        ValueTag::String => write!(f, "{:?}", v.as_str().unwrap()),
-        ValueTag::File => {
-            let (mimetype, len) = v.as_file_summary().unwrap();
-            write!(f, "<file {mimetype}, {}>", human_size(len))
-        }
-        ValueTag::Array => {
-            let (dtype, shape, len) = v.as_array_summary().unwrap();
-            write!(f, "<array {dtype:?} {shape:?}, {}>", human_size(len))
-        }
+        ValueTag::String => match v.as_str() {
+            Some(s) => write!(f, "{s:?}"),
+            None => f.write_str(DISPLAY_ERROR),
+        },
+        ValueTag::File => match v.as_file() {
+            Some(file) => write!(f, "<file {}, {}>", file.mimetype(), human_size(file.size())),
+            None => f.write_str(DISPLAY_ERROR),
+        },
+        ValueTag::Array => match v.as_array() {
+            Some(array) => write!(
+                f,
+                "<array {:?} {:?}, {}>",
+                array.dtype(),
+                array.shape(),
+                human_size(array.data().len() as u64)
+            ),
+            None => f.write_str(DISPLAY_ERROR),
+        },
         ValueTag::Object => {
-            let entries: Vec<_> = v.object_entries().unwrap().collect();
+            let Some(entries) = v.object_entries().map(|e| e.collect::<Vec<_>>()) else {
+                return f.write_str(DISPLAY_ERROR);
+            };
             if entries.is_empty() {
                 return f.write_str("{}");
             }
@@ -89,7 +116,9 @@ fn fmt_node<T: NodeView>(f: &mut fmt::Formatter<'_>, v: &T, indent: usize) -> fm
             Ok(())
         }
         ValueTag::List => {
-            let items = v.as_list().unwrap();
+            let Some(items) = v.as_list() else {
+                return f.write_str(DISPLAY_ERROR);
+            };
             if items.is_empty() {
                 return f.write_str("[]");
             }

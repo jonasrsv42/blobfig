@@ -39,7 +39,7 @@ mod tests {
         let value = Value::Object(vec![
             ("bool".to_string(), Value::Bool(true)),
             ("int".to_string(), Value::Int(42)),
-            ("float".to_string(), Value::Float(3.14)),
+            ("float".to_string(), Value::Float(2.5)),
             ("string".to_string(), Value::String("hello".to_string())),
         ]);
 

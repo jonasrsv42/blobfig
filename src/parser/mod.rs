@@ -78,11 +78,11 @@ mod tests {
 
     #[test]
     fn test_roundtrip_float() {
-        let value = Value::Float(3.14159);
+        let value = Value::Float(2.5);
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
         let f = parsed.as_float().unwrap();
-        assert!((f - 3.14159).abs() < 1e-10);
+        assert!((f - 2.5).abs() < 1e-10);
     }
 
     #[test]

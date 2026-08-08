@@ -31,21 +31,54 @@
 //! Bring the trait into scope (`use blobfig::NodeView;`) to call these methods
 //! on either type.
 
-use super::{DType, ValueTag};
+use super::{DType, Value, ValueTag};
 use crate::error::AccessError;
+
+/// The read interface over a file leaf, shared by owned [`File`](super::File)
+/// and borrowed [`FileView`](super::FileView). Bounds
+/// [`NodeView::File`](NodeView::File) so generic tree code can read a file's
+/// mimetype and size without naming the concrete payload.
+pub trait FileNode {
+    /// The file's mimetype.
+    fn mimetype(&self) -> &str;
+    /// The file's size in bytes.
+    fn size(&self) -> u64;
+}
+
+/// The read interface over an array leaf, shared by owned
+/// [`Array`](super::Array) and borrowed [`ArrayView`](super::ArrayView). Bounds
+/// [`NodeView::Array`](NodeView::Array) so generic tree code can read an array's
+/// element type, shape, and raw bytes without naming the concrete payload.
+pub trait ArrayNode {
+    /// The element type.
+    fn dtype(&self) -> DType;
+    /// The shape — one length per dimension.
+    fn shape(&self) -> &[u64];
+    /// The raw element bytes.
+    fn data(&self) -> &[u8];
+}
 
 /// The view-like read interface over a value node, implemented by owned
 /// [`Value`](super::Value) and borrowed [`ValueView`](super::ValueView).
 ///
-/// Holds only borrowing reads (see the module docs for why move semantics
-/// cannot live here). Implementors provide the variant-matching primitives; the
-/// path traversal and the typed `Result`-returning accessors come for free as
-/// provided methods.
-pub trait NodeView: Sized {
-    /// The array payload: `Array` (owned) or `ArrayView<'a>` (borrowed).
-    type Array;
-    /// The file payload: `File` (owned) or `FileView<'a>` (borrowed).
-    type File;
+/// The methods hold only borrowing reads (see the module docs for why move
+/// semantics cannot live *among the methods*). Implementors provide the
+/// variant-matching primitives; the path traversal and the typed
+/// `Result`-returning accessors come for free as provided methods.
+///
+/// Materialization to an owned value lives on the [`Into<Value>`] supertrait
+/// bound rather than as a method: every node can be turned into an owned
+/// [`Value`] at the cheapest cost its representation allows — a move for an
+/// already-owned `Value`, a clone for a borrowed `ValueView`.
+pub trait NodeView: Sized + Into<Value> {
+    /// The array payload: `Array` (owned) or `ArrayView<'a>` (borrowed). Read
+    /// through the [`ArrayNode`] interface, so generic code sees its dtype,
+    /// shape, and bytes without naming the concrete type.
+    type Array: ArrayNode;
+    /// The file payload: `File` (owned) or `FileView<'a>` (borrowed). Read
+    /// through the [`FileNode`] interface, so generic code sees its mimetype
+    /// and size without naming the concrete type.
+    type File: FileNode;
 
     // =========================================================================
     // Primitives — implemented per type (small variant matches)
@@ -81,13 +114,6 @@ pub trait NodeView: Sized {
     ///
     /// [`child`]: NodeView::child
     fn object_entries(&self) -> Option<impl Iterator<Item = (&str, &Self)>>;
-
-    /// `(mimetype, byte_len)` for a file leaf — the data `Display` summarizes
-    /// without materializing the bytes (sees through a secret wrapper).
-    fn as_file_summary(&self) -> Option<(&str, u64)>;
-    /// `(dtype, shape, byte_len)` for an array leaf — the data `Display`
-    /// summarizes (sees through a secret wrapper).
-    fn as_array_summary(&self) -> Option<(DType, &[u64], u64)>;
 
     // =========================================================================
     // Provided — written once, shared by every implementor

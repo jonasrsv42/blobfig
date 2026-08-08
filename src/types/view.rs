@@ -7,7 +7,7 @@
 //! which the trait's `&self`-bound signatures cannot express.
 
 use super::value::REDACTED;
-use super::{ArrayView, DType, FileView, NodeView, Value, ValueTag};
+use super::{ArrayView, FileView, NodeView, Value, ValueTag};
 use crate::error::AccessError;
 
 /// Parsed blobfig value - references data in the underlying buffer (zero-copy)
@@ -76,6 +76,17 @@ impl<'a> ValueView<'a> {
             ValueView::Object(o) => Some(o),
             _ => None,
         }
+    }
+}
+
+/// Materialize a borrowed view into an owned [`Value`] by cloning out of the
+/// source buffer. Paired with the reflexive `Value: Into<Value>` (a move), this
+/// lets generic code take `impl Into<Value>` and get the cheapest owned form of
+/// either representation — a clone from a view, a move from an already-owned
+/// value.
+impl<'a> From<ValueView<'a>> for Value {
+    fn from(view: ValueView<'a>) -> Self {
+        view.to_owned()
     }
 }
 
@@ -163,20 +174,6 @@ impl<'a> NodeView for ValueView<'a> {
             _ => None,
         }
     }
-
-    fn as_file_summary(&self) -> Option<(&str, u64)> {
-        match self.peel_secret() {
-            ValueView::File(f) => Some((f.mimetype, f.data.len() as u64)),
-            _ => None,
-        }
-    }
-
-    fn as_array_summary(&self) -> Option<(DType, &[u64], u64)> {
-        match self.peel_secret() {
-            ValueView::Array(a) => Some((a.dtype, &a.shape, a.data.len() as u64)),
-            _ => None,
-        }
-    }
 }
 
 // Hand-written so the `Secret` arm never formats its inner value at any depth.
@@ -194,5 +191,21 @@ impl<'a> std::fmt::Debug for ValueView<'a> {
             ValueView::Object(entries) => f.debug_tuple("Object").field(entries).finish(),
             ValueView::List(items) => f.debug_tuple("List").field(items).finish(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{parse, writer};
+
+    #[test]
+    fn a_view_materializes_into_an_owned_value() {
+        let bytes = writer::to_bytes(Value::Object(vec![("k".into(), Value::String("v".into()))]))
+            .expect("serialize");
+        let view = parse(&bytes).expect("parse");
+        // `impl Into<Value>` on a view clones out of the buffer.
+        let owned: Value = view.into();
+        assert_eq!(owned.string("k").expect("string"), "v");
     }
 }
