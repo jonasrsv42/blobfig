@@ -171,6 +171,40 @@ impl TryFrom<Value> for List {
     }
 }
 
+impl TryFrom<Value> for String {
+    type Error = Value;
+
+    /// Move a `String` out — the owning counterpart to
+    /// [`as_str`](NodeView::as_str), seeing through `Secret` wrappers. A value
+    /// that isn't a string is handed back with its secret wrapper intact.
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::String(string) => Ok(string),
+            Value::Secret(inner) => {
+                String::try_from(*inner).map_err(|inner| Value::Secret(Box::new(inner)))
+            }
+            other => Err(other),
+        }
+    }
+}
+
+impl TryFrom<Value> for Array {
+    type Error = Value;
+
+    /// Move an [`Array`] out — the owning counterpart to
+    /// [`as_array`](NodeView::as_array), seeing through `Secret` wrappers. A
+    /// value that isn't an array is handed back with its secret wrapper intact.
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Array(array) => Ok(array),
+            Value::Secret(inner) => {
+                Array::try_from(*inner).map_err(|inner| Value::Secret(Box::new(inner)))
+            }
+            other => Err(other),
+        }
+    }
+}
+
 // Hand-written so the `Secret` arm never formats its inner value at any depth.
 // All other arms mirror what `#[derive(Debug)]` would produce.
 impl std::fmt::Debug for Value {
@@ -348,5 +382,30 @@ mod tests {
             "list",
         );
         assert_eq!(shape(Value::Int(7)), "leaf");
+    }
+
+    #[test]
+    fn a_string_moves_out_through_its_secret() {
+        let value = Value::secret("token");
+        let string = String::try_from(value).expect("moves the string out");
+        assert_eq!(string, "token");
+    }
+
+    #[test]
+    fn a_non_string_is_handed_back_with_its_secret_intact() {
+        let value = Value::secret(Value::Int(7));
+        let Err(returned) = String::try_from(value) else {
+            panic!("an int is not a string");
+        };
+        assert_eq!(format!("{returned:?}"), "<redacted>");
+        assert_eq!(returned.as_int(), Some(7));
+    }
+
+    #[test]
+    fn an_array_moves_out() {
+        use crate::DType;
+        let value = Value::Array(Array::new(DType::U8, vec![3], vec![1, 2, 3]));
+        let array = Array::try_from(value).expect("moves the array out");
+        assert_eq!(array.data, vec![1, 2, 3]);
     }
 }
