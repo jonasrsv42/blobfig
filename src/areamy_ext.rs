@@ -1,14 +1,13 @@
 //! areamy error integration for blobfig
 //!
-//! This module provides conversions from blobfig errors to areamy's AnyErr trait.
+//! This module provides conversions from blobfig errors into areamy errors. blobfig errors are
+//! [`AnyErr`] through areamy's blanket impl.
 //!
 //! Enable with the `areamy` feature flag.
 
 use crate::error::AccessError;
 use areamy::any_err;
 use areamy::error::{AnyErr, Error};
-
-impl AnyErr for AccessError {}
 
 impl From<AccessError> for Box<dyn AnyErr> {
     fn from(value: AccessError) -> Self {
@@ -28,8 +27,6 @@ mod ndarray_errors {
     use crate::ndarray_ext::NdarrayError;
     use areamy::any_err;
     use areamy::error::{AnyErr, Error};
-
-    impl AnyErr for NdarrayError {}
 
     impl From<NdarrayError> for Box<dyn AnyErr> {
         fn from(value: NdarrayError) -> Self {
