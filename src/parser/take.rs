@@ -1,19 +1,24 @@
 //! Zero-copy take combinator for binary parsing
 
-use parsicomb::{ByteCursor, CodeLoc, Cursor, Parser, ParsicombError};
+use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError};
+use std::marker::PhantomData;
 
 /// Parser that takes exactly N bytes as a zero-copy slice
-pub struct Take {
+pub struct Take<'a> {
     count: usize,
+    _input: PhantomData<&'a [u8]>,
 }
 
-impl Take {
+impl<'a> Take<'a> {
     pub fn new(count: usize) -> Self {
-        Take { count }
+        Take {
+            count,
+            _input: PhantomData,
+        }
     }
 }
 
-impl<'a> Parser<'a> for Take {
+impl<'a> Parser for Take<'a> {
     type Cursor = ByteCursor<'a>;
     type Output = &'a [u8];
     type Error = ParsicombError<'a>;
@@ -42,13 +47,14 @@ impl<'a> Parser<'a> for Take {
 }
 
 /// Take exactly N bytes as a zero-copy slice
-pub fn take(count: usize) -> Take {
+pub fn take<'a>(count: usize) -> Take<'a> {
     Take::new(count)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parsicomb::Cursor;
 
     #[test]
     fn test_take_zero() {

@@ -6,18 +6,23 @@ use super::file::parse_file_body;
 use super::primitives::{f64_le, i64_le, u8_parser, u32_le};
 use super::string::parse_string;
 use crate::types::{ValueTag, ValueView};
-use parsicomb::{ByteCursor, CodeLoc, Cursor, Parser, ParsicombError, ntimes};
+use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes};
 use std::borrow::Cow;
+use std::marker::PhantomData;
 
 /// Parse a value
 pub fn parse_value<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = ValueView<'a>, Error = ParsicombError<'a>> {
-    ValueParser
+-> impl Parser<Cursor = ByteCursor<'a>, Output = ValueView<'a>, Error = ParsicombError<'a>> {
+    ValueParser {
+        _input: PhantomData,
+    }
 }
 
-struct ValueParser;
+struct ValueParser<'a> {
+    _input: PhantomData<&'a [u8]>,
+}
 
-impl<'a> Parser<'a> for ValueParser {
+impl<'a> Parser for ValueParser<'a> {
     type Cursor = ByteCursor<'a>;
     type Output = ValueView<'a>;
     type Error = ParsicombError<'a>;

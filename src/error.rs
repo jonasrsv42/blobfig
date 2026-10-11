@@ -61,10 +61,10 @@ impl<'a> From<ParsicombError<'a>> for BlobfigError<'a> {
     }
 }
 
-impl<'a> ErrorLeaf<'a> for BlobfigError<'a> {
+impl<'a> ErrorLeaf for BlobfigError<'a> {
     type Element = u8;
 
-    fn loc(&self) -> CodeLoc<'a, Self::Element> {
+    fn loc(&self) -> CodeLoc<'_, Self::Element> {
         match self {
             BlobfigError::Parse(e) => e.loc(),
             BlobfigError::Custom { loc, .. } => *loc,
@@ -74,10 +74,10 @@ impl<'a> ErrorLeaf<'a> for BlobfigError<'a> {
     }
 }
 
-impl<'a> ErrorNode<'a> for BlobfigError<'a> {
+impl<'a> ErrorNode for BlobfigError<'a> {
     type Element = u8;
 
-    fn likely_error(&self) -> &dyn ErrorLeaf<'a, Element = Self::Element> {
+    fn likely_error(&self) -> &dyn ErrorLeaf<Element = Self::Element> {
         self
     }
 }

@@ -6,25 +6,25 @@ use parsicomb::{ByteCursor, Parser, ParsicombError, byte::byte};
 
 /// Parse a u8
 pub fn u8_parser<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = u8, Error = ParsicombError<'a>> {
+-> impl Parser<Cursor = ByteCursor<'a>, Output = u8, Error = ParsicombError<'a>> {
     byte()
 }
 
 /// Parse a u16 (little-endian)
-pub fn u16_le<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = u16, Error = ParsicombError<'a>> {
+pub fn u16_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = u16, Error = ParsicombError<'a>>
+{
     take(2).map(|bytes: &[u8]| u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
 /// Parse a u32 (little-endian)
-pub fn u32_le<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = u32, Error = ParsicombError<'a>> {
+pub fn u32_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = u32, Error = ParsicombError<'a>>
+{
     take(4).map(|bytes: &[u8]| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
 /// Parse a u64 (little-endian)
-pub fn u64_le<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = u64, Error = ParsicombError<'a>> {
+pub fn u64_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = u64, Error = ParsicombError<'a>>
+{
     take(8).map(|bytes: &[u8]| {
         u64::from_le_bytes([
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -33,8 +33,8 @@ pub fn u64_le<'a>()
 }
 
 /// Parse an i64 (little-endian)
-pub fn i64_le<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = i64, Error = ParsicombError<'a>> {
+pub fn i64_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = i64, Error = ParsicombError<'a>>
+{
     take(8).map(|bytes: &[u8]| {
         i64::from_le_bytes([
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -43,8 +43,8 @@ pub fn i64_le<'a>()
 }
 
 /// Parse an f64 (little-endian)
-pub fn f64_le<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = f64, Error = ParsicombError<'a>> {
+pub fn f64_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = f64, Error = ParsicombError<'a>>
+{
     take(8).map(|bytes: &[u8]| {
         f64::from_le_bytes([
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],

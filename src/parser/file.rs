@@ -3,18 +3,23 @@
 use super::primitives::{u16_le, u64_le};
 use super::take::take;
 use crate::types::FileView;
-use parsicomb::{ByteCursor, CodeLoc, Cursor, Parser, ParsicombError};
+use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError};
 use std::borrow::Cow;
+use std::marker::PhantomData;
 
 /// Parse a file value (after tag has been consumed)
 pub fn parse_file_body<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = FileView<'a>, Error = ParsicombError<'a>> {
-    FileBodyParser
+-> impl Parser<Cursor = ByteCursor<'a>, Output = FileView<'a>, Error = ParsicombError<'a>> {
+    FileBodyParser {
+        _input: PhantomData,
+    }
 }
 
-struct FileBodyParser;
+struct FileBodyParser<'a> {
+    _input: PhantomData<&'a [u8]>,
+}
 
-impl<'a> Parser<'a> for FileBodyParser {
+impl<'a> Parser for FileBodyParser<'a> {
     type Cursor = ByteCursor<'a>;
     type Output = FileView<'a>;
     type Error = ParsicombError<'a>;

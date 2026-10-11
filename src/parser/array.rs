@@ -3,18 +3,23 @@
 use super::primitives::{u8_parser, u64_le};
 use super::take::take;
 use crate::types::{ArrayView, DType};
-use parsicomb::{ByteCursor, CodeLoc, Cursor, Parser, ParsicombError, ntimes};
+use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes};
 use std::borrow::Cow;
+use std::marker::PhantomData;
 
 /// Parse an array value (after tag has been consumed)
 pub fn parse_array_body<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = ArrayView<'a>, Error = ParsicombError<'a>> {
-    ArrayBodyParser
+-> impl Parser<Cursor = ByteCursor<'a>, Output = ArrayView<'a>, Error = ParsicombError<'a>> {
+    ArrayBodyParser {
+        _input: PhantomData,
+    }
 }
 
-struct ArrayBodyParser;
+struct ArrayBodyParser<'a> {
+    _input: PhantomData<&'a [u8]>,
+}
 
-impl<'a> Parser<'a> for ArrayBodyParser {
+impl<'a> Parser for ArrayBodyParser<'a> {
     type Cursor = ByteCursor<'a>;
     type Output = ArrayView<'a>;
     type Error = ParsicombError<'a>;

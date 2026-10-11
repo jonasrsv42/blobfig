@@ -4,20 +4,22 @@ use super::string::parse_key;
 use super::value::parse_value;
 use crate::types::ValueView;
 use parsicomb::{ByteCursor, Parser, ParsicombError};
+use std::marker::PhantomData;
 
 /// Parse a single object entry (key + value)
-pub fn parse_entry<'a>() -> impl Parser<
-    'a,
-    Cursor = ByteCursor<'a>,
-    Output = (&'a str, ValueView<'a>),
-    Error = ParsicombError<'a>,
-> {
-    EntryParser
+pub fn parse_entry<'a>()
+-> impl Parser<Cursor = ByteCursor<'a>, Output = (&'a str, ValueView<'a>), Error = ParsicombError<'a>>
+{
+    EntryParser {
+        _input: PhantomData,
+    }
 }
 
-struct EntryParser;
+struct EntryParser<'a> {
+    _input: PhantomData<&'a [u8]>,
+}
 
-impl<'a> Parser<'a> for EntryParser {
+impl<'a> Parser for EntryParser<'a> {
     type Cursor = ByteCursor<'a>;
     type Output = (&'a str, ValueView<'a>);
     type Error = ParsicombError<'a>;

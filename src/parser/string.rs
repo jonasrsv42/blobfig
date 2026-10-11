@@ -2,26 +2,26 @@
 
 use super::primitives::{u16_le, u32_le};
 use super::take::take;
-use parsicomb::{ByteCursor, CodeLoc, Cursor, Parser, ParsicombError};
+use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError};
 use std::borrow::Cow;
 
 /// Parse a u32 length-prefixed UTF-8 string (for values)
 pub fn parse_string<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = &'a str, Error = ParsicombError<'a>> {
+-> impl Parser<Cursor = ByteCursor<'a>, Output = &'a str, Error = ParsicombError<'a>> {
     StringParser::<u32>::new()
 }
 
 /// Parse a u16 length-prefixed UTF-8 string (for object keys)
 pub fn parse_key<'a>()
--> impl Parser<'a, Cursor = ByteCursor<'a>, Output = &'a str, Error = ParsicombError<'a>> {
+-> impl Parser<Cursor = ByteCursor<'a>, Output = &'a str, Error = ParsicombError<'a>> {
     StringParser::<u16>::new()
 }
 
-struct StringParser<L> {
-    _marker: std::marker::PhantomData<L>,
+struct StringParser<'a, L> {
+    _marker: std::marker::PhantomData<(&'a [u8], L)>,
 }
 
-impl<L> StringParser<L> {
+impl<'a, L> StringParser<'a, L> {
     fn new() -> Self {
         Self {
             _marker: std::marker::PhantomData,
@@ -29,7 +29,7 @@ impl<L> StringParser<L> {
     }
 }
 
-impl<'a> Parser<'a> for StringParser<u32> {
+impl<'a> Parser for StringParser<'a, u32> {
     type Cursor = ByteCursor<'a>;
     type Output = &'a str;
     type Error = ParsicombError<'a>;
@@ -48,7 +48,7 @@ impl<'a> Parser<'a> for StringParser<u32> {
     }
 }
 
-impl<'a> Parser<'a> for StringParser<u16> {
+impl<'a> Parser for StringParser<'a, u16> {
     type Cursor = ByteCursor<'a>;
     type Output = &'a str;
     type Error = ParsicombError<'a>;
