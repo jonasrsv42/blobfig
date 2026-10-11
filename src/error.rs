@@ -72,6 +72,13 @@ impl<'a> ErrorLeaf for BlobfigError<'a> {
             _ => CodeLoc::new(&[], 0),
         }
     }
+
+    fn is_expectation(&self) -> bool {
+        match self {
+            BlobfigError::Parse(e) => e.is_expectation(),
+            _ => false,
+        }
+    }
 }
 
 impl<'a> ErrorNode for BlobfigError<'a> {

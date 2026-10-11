@@ -20,7 +20,7 @@ pub fn parse_array_body<'a>()
         })?;
 
         let (ndim, cursor) = u8_parser().parse(cursor)?;
-        let (shape, cursor) = ntimes(ndim as usize, u64_le()).parse(cursor)?;
+        let (shape, cursor) = ntimes(u64_le(), ndim as usize).parse(cursor)?;
         let (data_size, cursor) = u64_le().parse(cursor)?;
         // Data bytes, zero-copy
         let (data, cursor) = take(data_size as usize).parse(cursor)?;

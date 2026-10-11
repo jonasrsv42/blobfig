@@ -10,7 +10,7 @@ pub fn take<'a>(
         let (data, pos) = cursor.inner();
         match pos.checked_add(count) {
             Some(end) if end <= data.len() => Ok((&data[pos..end], cursor.advance(count))),
-            _ => Err(ParsicombError::UnexpectedEndOfFile(cursor.loc())),
+            _ => Err(ParsicombError::EndOfInput(cursor.loc())),
         }
     })
 }

@@ -24,7 +24,7 @@ use std::borrow::Cow;
 pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParsicombError<'_>> {
     // Check minimum size for header
     if bytes.len() < HEADER_SIZE {
-        return Err(ParsicombError::UnexpectedEndOfFile(CodeLoc::new(bytes, 0)));
+        return Err(ParsicombError::EndOfInput(CodeLoc::new(bytes, 0)));
     }
 
     // Validate magic bytes

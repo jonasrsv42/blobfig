@@ -49,12 +49,12 @@ pub fn parse_value<'a>()
             }
             ValueTag::Object => {
                 let (n, cursor) = u32_le().parse(cursor)?;
-                let (entries, cursor) = ntimes(n as usize, parse_entry()).parse(cursor)?;
+                let (entries, cursor) = ntimes(parse_entry(), n as usize).parse(cursor)?;
                 Ok((ValueView::object(entries), cursor))
             }
             ValueTag::List => {
                 let (n, cursor) = u32_le().parse(cursor)?;
-                let (items, cursor) = ntimes(n as usize, parse_value()).parse(cursor)?;
+                let (items, cursor) = ntimes(parse_value(), n as usize).parse(cursor)?;
                 Ok((ValueView::list(items), cursor))
             }
             ValueTag::Secret => {
