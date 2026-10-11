@@ -3,32 +3,17 @@
 use super::string::parse_key;
 use super::value::parse_value;
 use crate::types::ValueView;
-use parsicomb::{ByteCursor, Parser, ParsicombError};
-use std::marker::PhantomData;
+use parsicomb::{ByteCursor, Parser, ParsicombError, parser_fn};
 
 /// Parse a single object entry (key + value)
 pub fn parse_entry<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = (&'a str, ValueView<'a>), Error = ParsicombError<'a>>
 {
-    EntryParser {
-        _input: PhantomData,
-    }
-}
-
-struct EntryParser<'a> {
-    _input: PhantomData<&'a [u8]>,
-}
-
-impl<'a> Parser for EntryParser<'a> {
-    type Cursor = ByteCursor<'a>;
-    type Output = (&'a str, ValueView<'a>);
-    type Error = ParsicombError<'a>;
-
-    fn parse(&self, cursor: Self::Cursor) -> Result<(Self::Output, Self::Cursor), Self::Error> {
+    parser_fn(|cursor: ByteCursor<'a>| {
         let (key, cursor) = parse_key().parse(cursor)?;
         let (value, cursor) = parse_value().parse(cursor)?;
         Ok(((key, value), cursor))
-    }
+    })
 }
 
 #[cfg(test)]

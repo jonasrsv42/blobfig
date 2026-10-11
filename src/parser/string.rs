@@ -2,69 +2,40 @@
 
 use super::primitives::{u16_le, u32_le};
 use super::take::take;
-use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError};
+use parsicomb::map::MapExt;
+use parsicomb::{ByteCursor, Parser, ParsicombError, parser_fn};
 use std::borrow::Cow;
 
 /// Parse a u32 length-prefixed UTF-8 string (for values)
 pub fn parse_string<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a str, Error = ParsicombError<'a>> {
-    StringParser::<u32>::new()
+    length_prefixed_str(u32_le().map(|len| len as usize), "Invalid UTF-8 in string")
 }
 
 /// Parse a u16 length-prefixed UTF-8 string (for object keys)
 pub fn parse_key<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a str, Error = ParsicombError<'a>> {
-    StringParser::<u16>::new()
+    length_prefixed_str(u16_le().map(|len| len as usize), "Invalid UTF-8 in string")
 }
 
-struct StringParser<'a, L> {
-    _marker: std::marker::PhantomData<(&'a [u8], L)>,
-}
-
-impl<'a, L> StringParser<'a, L> {
-    fn new() -> Self {
-        Self {
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<'a> Parser for StringParser<'a, u32> {
-    type Cursor = ByteCursor<'a>;
-    type Output = &'a str;
-    type Error = ParsicombError<'a>;
-
-    fn parse(&self, cursor: Self::Cursor) -> Result<(Self::Output, Self::Cursor), Self::Error> {
-        let (len, cursor) = u32_le().parse(cursor)?;
-        let (bytes, cursor) = take(len as usize).parse(cursor)?;
-        let s = std::str::from_utf8(bytes).map_err(|_| {
-            let (data, pos) = cursor.inner();
-            ParsicombError::SyntaxError {
-                message: Cow::Borrowed("Invalid UTF-8 in string"),
-                loc: CodeLoc::new(data, pos.saturating_sub(len as usize)),
-            }
+/// Parse a length, then that many bytes as UTF-8; invalid UTF-8 is reported
+/// with `invalid_utf8` at the start of the bytes
+pub(super) fn length_prefixed_str<'a, P>(
+    length: P,
+    invalid_utf8: &'static str,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a str, Error = ParsicombError<'a>>
+where
+    P: Parser<Cursor = ByteCursor<'a>, Output = usize, Error = ParsicombError<'a>>,
+{
+    parser_fn(move |cursor: ByteCursor<'a>| {
+        let (len, start) = length.parse(cursor)?;
+        let (bytes, end) = take(len).parse(start)?;
+        let s = std::str::from_utf8(bytes).map_err(|_| ParsicombError::SyntaxError {
+            message: Cow::Borrowed(invalid_utf8),
+            loc: start.loc(),
         })?;
-        Ok((s, cursor))
-    }
-}
-
-impl<'a> Parser for StringParser<'a, u16> {
-    type Cursor = ByteCursor<'a>;
-    type Output = &'a str;
-    type Error = ParsicombError<'a>;
-
-    fn parse(&self, cursor: Self::Cursor) -> Result<(Self::Output, Self::Cursor), Self::Error> {
-        let (len, cursor) = u16_le().parse(cursor)?;
-        let (bytes, cursor) = take(len as usize).parse(cursor)?;
-        let s = std::str::from_utf8(bytes).map_err(|_| {
-            let (data, pos) = cursor.inner();
-            ParsicombError::SyntaxError {
-                message: Cow::Borrowed("Invalid UTF-8 in string"),
-                loc: CodeLoc::new(data, pos.saturating_sub(len as usize)),
-            }
-        })?;
-        Ok((s, cursor))
-    }
+        Ok((s, end))
+    })
 }
 
 #[cfg(test)]

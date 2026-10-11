@@ -3,29 +3,13 @@
 use super::primitives::{u8_parser, u64_le};
 use super::take::take;
 use crate::types::{ArrayView, DType};
-use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes};
+use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
 use std::borrow::Cow;
-use std::marker::PhantomData;
 
 /// Parse an array value (after tag has been consumed)
 pub fn parse_array_body<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = ArrayView<'a>, Error = ParsicombError<'a>> {
-    ArrayBodyParser {
-        _input: PhantomData,
-    }
-}
-
-struct ArrayBodyParser<'a> {
-    _input: PhantomData<&'a [u8]>,
-}
-
-impl<'a> Parser for ArrayBodyParser<'a> {
-    type Cursor = ByteCursor<'a>;
-    type Output = ArrayView<'a>;
-    type Error = ParsicombError<'a>;
-
-    fn parse(&self, cursor: Self::Cursor) -> Result<(Self::Output, Self::Cursor), Self::Error> {
-        // Parse dtype
+    parser_fn(|cursor: ByteCursor<'a>| {
         let (dtype_byte, cursor) = u8_parser().parse(cursor)?;
         let dtype = DType::from_u8(dtype_byte).ok_or_else(|| {
             let (data, pos) = cursor.inner();
@@ -35,20 +19,14 @@ impl<'a> Parser for ArrayBodyParser<'a> {
             }
         })?;
 
-        // Parse ndim
         let (ndim, cursor) = u8_parser().parse(cursor)?;
-
-        // Parse shape (ndim u64 values)
         let (shape, cursor) = ntimes(ndim as usize, u64_le()).parse(cursor)?;
-
-        // Parse data size
         let (data_size, cursor) = u64_le().parse(cursor)?;
-
-        // Take data bytes (zero-copy)
+        // Data bytes, zero-copy
         let (data, cursor) = take(data_size as usize).parse(cursor)?;
 
         Ok((ArrayView { dtype, shape, data }, cursor))
-    }
+    })
 }
 
 #[cfg(test)]

@@ -6,28 +6,13 @@ use super::file::parse_file_body;
 use super::primitives::{f64_le, i64_le, u8_parser, u32_le};
 use super::string::parse_string;
 use crate::types::{ValueTag, ValueView};
-use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes};
+use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
 use std::borrow::Cow;
-use std::marker::PhantomData;
 
-/// Parse a value
+/// Parse a value, dispatching on its tag byte
 pub fn parse_value<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = ValueView<'a>, Error = ParsicombError<'a>> {
-    ValueParser {
-        _input: PhantomData,
-    }
-}
-
-struct ValueParser<'a> {
-    _input: PhantomData<&'a [u8]>,
-}
-
-impl<'a> Parser for ValueParser<'a> {
-    type Cursor = ByteCursor<'a>;
-    type Output = ValueView<'a>;
-    type Error = ParsicombError<'a>;
-
-    fn parse(&self, cursor: Self::Cursor) -> Result<(Self::Output, Self::Cursor), Self::Error> {
+    parser_fn(|cursor: ByteCursor<'a>| {
         let (tag_byte, cursor) = u8_parser().parse(cursor)?;
         let tag = ValueTag::from_u8(tag_byte).ok_or_else(|| {
             let (data, pos) = cursor.inner();
@@ -79,7 +64,7 @@ impl<'a> Parser for ValueParser<'a> {
                 Ok((ValueView::Secret(Box::new(inner)), cursor))
             }
         }
-    }
+    })
 }
 
 #[cfg(test)]

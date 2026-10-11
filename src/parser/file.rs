@@ -1,51 +1,26 @@
 //! File blob parsing
 
 use super::primitives::{u16_le, u64_le};
+use super::string::length_prefixed_str;
 use super::take::take;
 use crate::types::FileView;
-use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError};
-use std::borrow::Cow;
-use std::marker::PhantomData;
+use parsicomb::map::MapExt;
+use parsicomb::{ByteCursor, Parser, ParsicombError, parser_fn};
 
 /// Parse a file value (after tag has been consumed)
 pub fn parse_file_body<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = FileView<'a>, Error = ParsicombError<'a>> {
-    FileBodyParser {
-        _input: PhantomData,
-    }
-}
-
-struct FileBodyParser<'a> {
-    _input: PhantomData<&'a [u8]>,
-}
-
-impl<'a> Parser for FileBodyParser<'a> {
-    type Cursor = ByteCursor<'a>;
-    type Output = FileView<'a>;
-    type Error = ParsicombError<'a>;
-
-    fn parse(&self, cursor: Self::Cursor) -> Result<(Self::Output, Self::Cursor), Self::Error> {
-        // Parse mimetype length
-        let (mimetype_len, cursor) = u16_le().parse(cursor)?;
-
-        // Take mimetype bytes and convert to str
-        let (mimetype_bytes, cursor) = take(mimetype_len as usize).parse(cursor)?;
-        let mimetype = std::str::from_utf8(mimetype_bytes).map_err(|_| {
-            let (data, pos) = cursor.inner();
-            ParsicombError::SyntaxError {
-                message: Cow::Borrowed("Invalid UTF-8 in mimetype"),
-                loc: CodeLoc::new(data, pos.saturating_sub(mimetype_len as usize)),
-            }
-        })?;
-
-        // Parse data size
+    let mimetype = length_prefixed_str(
+        u16_le().map(|len| len as usize),
+        "Invalid UTF-8 in mimetype",
+    );
+    parser_fn(move |cursor: ByteCursor<'a>| {
+        let (mimetype, cursor) = mimetype.parse(cursor)?;
         let (data_size, cursor) = u64_le().parse(cursor)?;
-
-        // Take data bytes (zero-copy)
+        // Data bytes, zero-copy
         let (data, cursor) = take(data_size as usize).parse(cursor)?;
-
         Ok((FileView { mimetype, data }, cursor))
-    }
+    })
 }
 
 #[cfg(test)]

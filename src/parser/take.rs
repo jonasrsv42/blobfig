@@ -1,54 +1,18 @@
 //! Zero-copy take combinator for binary parsing
 
-use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError};
-use std::marker::PhantomData;
-
-/// Parser that takes exactly N bytes as a zero-copy slice
-pub struct Take<'a> {
-    count: usize,
-    _input: PhantomData<&'a [u8]>,
-}
-
-impl<'a> Take<'a> {
-    pub fn new(count: usize) -> Self {
-        Take {
-            count,
-            _input: PhantomData,
-        }
-    }
-}
-
-impl<'a> Parser for Take<'a> {
-    type Cursor = ByteCursor<'a>;
-    type Output = &'a [u8];
-    type Error = ParsicombError<'a>;
-
-    fn parse(&self, cursor: Self::Cursor) -> Result<(Self::Output, Self::Cursor), Self::Error> {
-        let (data, pos) = cursor.inner();
-
-        if pos + self.count > data.len() {
-            return Err(ParsicombError::UnexpectedEndOfFile(CodeLoc::new(data, pos)));
-        }
-
-        let slice = &data[pos..pos + self.count];
-        let new_pos = pos + self.count;
-
-        let new_cursor = if new_pos >= data.len() {
-            ByteCursor::EndOfFile { data }
-        } else {
-            ByteCursor::Valid {
-                data,
-                position: new_pos,
-            }
-        };
-
-        Ok((slice, new_cursor))
-    }
-}
+use parsicomb::{ByteCursor, Cursor, Parser, ParsicombError, parser_fn};
 
 /// Take exactly N bytes as a zero-copy slice
-pub fn take<'a>(count: usize) -> Take<'a> {
-    Take::new(count)
+pub fn take<'a>(
+    count: usize,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = ParsicombError<'a>> {
+    parser_fn(move |cursor: ByteCursor<'a>| {
+        let (data, pos) = cursor.inner();
+        match pos.checked_add(count) {
+            Some(end) if end <= data.len() => Ok((&data[pos..end], cursor.advance(count))),
+            _ => Err(ParsicombError::UnexpectedEndOfFile(cursor.loc())),
+        }
+    })
 }
 
 #[cfg(test)]
