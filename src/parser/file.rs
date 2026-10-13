@@ -4,7 +4,7 @@ use super::primitives::{u16_le, u64_le};
 use super::string::length_prefixed_str;
 use super::take::take;
 use crate::types::FileView;
-use parsicomb::map::MapExt;
+use parsicomb::MapExt;
 use parsicomb::{ByteCursor, Parser, ParsicombError, parser_fn};
 
 /// Parse a file value (after tag has been consumed)

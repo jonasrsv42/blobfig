@@ -1,7 +1,7 @@
 //! Primitive binary parsers built from combinators
 
 use super::take::take;
-use parsicomb::map::MapExt;
+use parsicomb::MapExt;
 use parsicomb::{ByteCursor, Parser, ParsicombError, byte::byte};
 
 /// Parse a u8

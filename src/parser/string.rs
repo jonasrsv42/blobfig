@@ -2,7 +2,7 @@
 
 use super::primitives::{u16_le, u32_le};
 use super::take::take;
-use parsicomb::map::MapExt;
+use parsicomb::MapExt;
 use parsicomb::{ByteCursor, Parser, ParsicombError, parser_fn};
 use std::borrow::Cow;
 
