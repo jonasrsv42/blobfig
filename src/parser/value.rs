@@ -16,7 +16,7 @@ pub fn parse_value<'a>()
         let (tag_byte, cursor) = u8_parser().parse(cursor)?;
         let tag = ValueTag::from_u8(tag_byte).ok_or_else(|| {
             let (data, pos) = cursor.inner();
-            ParsicombError::SyntaxError {
+            ParsicombError::Invalid {
                 message: Cow::Owned(format!("Invalid value tag: 0x{:02X}", tag_byte)),
                 loc: CodeLoc::new(data, pos.saturating_sub(1)),
             }

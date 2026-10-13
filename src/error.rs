@@ -1,7 +1,7 @@
 //! Error types for blobfig
 
 use crate::types::ValueTag;
-use parsicomb::{CodeLoc, ErrorLeaf, ErrorNode, ParsicombError};
+use parsicomb::{CodeLoc, ErrorLeaf, ErrorNode, ParsicombError, Progress};
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
@@ -72,13 +72,6 @@ impl<'a> ErrorLeaf for BlobfigError<'a> {
             _ => CodeLoc::new(&[], 0),
         }
     }
-
-    fn is_expectation(&self) -> bool {
-        match self {
-            BlobfigError::Parse(e) => e.is_expectation(),
-            _ => false,
-        }
-    }
 }
 
 impl<'a> ErrorNode for BlobfigError<'a> {
@@ -86,6 +79,13 @@ impl<'a> ErrorNode for BlobfigError<'a> {
 
     fn likely_error(&self) -> &dyn ErrorLeaf<Element = Self::Element> {
         self
+    }
+
+    fn progress(&self) -> Progress {
+        match self {
+            BlobfigError::Parse(e) => e.progress(),
+            _ => Progress::at(self.loc().position()),
+        }
     }
 }
 

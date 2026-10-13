@@ -29,7 +29,7 @@ pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParsicombError<'_>> {
 
     // Validate magic bytes
     if &bytes[0..8] != MAGIC {
-        return Err(ParsicombError::SyntaxError {
+        return Err(ParsicombError::Invalid {
             message: Cow::Borrowed("Invalid magic bytes"),
             loc: CodeLoc::new(bytes, 0),
         });
@@ -38,7 +38,7 @@ pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParsicombError<'_>> {
     // Validate version
     let version = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
     if version != VERSION {
-        return Err(ParsicombError::SyntaxError {
+        return Err(ParsicombError::Invalid {
             message: Cow::Owned(format!(
                 "Unsupported version: {}, expected {}",
                 version, VERSION

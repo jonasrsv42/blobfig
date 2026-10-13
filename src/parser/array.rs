@@ -13,7 +13,7 @@ pub fn parse_array_body<'a>()
         let (dtype_byte, cursor) = u8_parser().parse(cursor)?;
         let dtype = DType::from_u8(dtype_byte).ok_or_else(|| {
             let (data, pos) = cursor.inner();
-            ParsicombError::SyntaxError {
+            ParsicombError::Invalid {
                 message: Cow::Owned(format!("Invalid dtype: 0x{:02X}", dtype_byte)),
                 loc: CodeLoc::new(data, pos.saturating_sub(1)),
             }

@@ -30,7 +30,7 @@ where
     parser_fn(move |cursor: ByteCursor<'a>| {
         let (len, start) = length.parse(cursor)?;
         let (bytes, end) = take(len).parse(start)?;
-        let s = std::str::from_utf8(bytes).map_err(|_| ParsicombError::SyntaxError {
+        let s = std::str::from_utf8(bytes).map_err(|_| ParsicombError::Invalid {
             message: Cow::Borrowed(invalid_utf8),
             loc: start.loc(),
         })?;
