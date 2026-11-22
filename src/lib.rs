@@ -36,6 +36,11 @@
 
 mod check;
 pub mod error;
+
+// The README's examples run as doctests, so they stay correct
+#[cfg(all(doctest, feature = "ndarray"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
 pub mod parser;
 pub mod types;
 pub mod writer;
