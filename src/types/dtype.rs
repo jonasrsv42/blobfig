@@ -17,6 +17,16 @@ pub enum DType {
 }
 
 impl DType {
+    /// Size in bytes of an array of this dtype with `shape`, or `None` if it
+    /// doesn't fit in a `u64`
+    pub fn data_size(self, shape: &[u64]) -> Option<u64> {
+        shape
+            .iter()
+            .try_fold(self.element_size() as u64, |size, &dim| {
+                size.checked_mul(dim)
+            })
+    }
+
     /// Size in bytes of a single element
     pub fn element_size(self) -> usize {
         match self {

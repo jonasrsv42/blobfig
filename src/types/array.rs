@@ -21,10 +21,26 @@ impl Array {
         self.shape.iter().product()
     }
 
-    /// Expected data size in bytes
-    pub fn expected_size(&self) -> u64 {
-        self.num_elements() * self.dtype.element_size() as u64
+    /// Expected data size in bytes, or `None` if it doesn't fit in a `u64`
+    pub fn expected_size(&self) -> Option<u64> {
+        self.dtype.data_size(&self.shape)
     }
+}
+
+/// Check that `actual` data bytes are what `dtype` with `shape` needs; the
+/// error message names all three
+pub(crate) fn check_data_size(dtype: DType, shape: &[u64], actual: usize) -> Result<(), String> {
+    let needed = dtype.data_size(shape);
+    if needed == Some(actual as u64) {
+        return Ok(());
+    }
+    let needed = match needed {
+        Some(bytes) => format!("{bytes} bytes"),
+        None => "more bytes than fit in a u64".to_string(),
+    };
+    Err(format!(
+        "array data is {actual} bytes, but {dtype:?} with shape {shape:?} needs {needed}"
+    ))
 }
 
 /// View into a typed array stored in the blob (zero-copy)
@@ -41,9 +57,9 @@ impl<'a> ArrayView<'a> {
         self.shape.iter().product()
     }
 
-    /// Expected data size in bytes
-    pub fn expected_size(&self) -> u64 {
-        self.num_elements() * self.dtype.element_size() as u64
+    /// Expected data size in bytes, or `None` if it doesn't fit in a `u64`
+    pub fn expected_size(&self) -> Option<u64> {
+        self.dtype.data_size(&self.shape)
     }
 
     /// Convert to owned Array

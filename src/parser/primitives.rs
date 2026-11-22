@@ -1,8 +1,23 @@
-//! Fixed-width fields: little-endian numbers and checked bytes
+//! Fixed-width fields and checks: little-endian numbers, checked values
 
 use parsicomb::byte::byte;
 use parsicomb::{ByteCursor, Cursor, Parser, ParsicombError, parser_fn};
 use std::borrow::Cow;
+
+/// Run `parser`, then `check` its output; a refused output is reported at
+/// the start of what `parser` read, with `check`'s message
+pub fn checked<'a, T, U>(
+    parser: impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = ParsicombError<'a>>,
+    check: impl Fn(T) -> Result<U, String>,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = U, Error = ParsicombError<'a>> {
+    parser_fn(move |cursor: ByteCursor<'a>| {
+        let (value, next) = parser.parse(cursor)?;
+        match check(value) {
+            Ok(value) => Ok((value, next)),
+            Err(message) => Err(cursor.invalid_error(Cow::Owned(message))),
+        }
+    })
+}
 
 /// Read one byte and convert it with `convert`; a byte it refuses (`None`) is
 /// reported at that byte as "invalid `what`: 0x..", e.g.
@@ -11,12 +26,8 @@ pub fn checked_byte<'a, T>(
     convert: fn(u8) -> Option<T>,
     what: &'static str,
 ) -> impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = ParsicombError<'a>> {
-    parser_fn(move |cursor: ByteCursor<'a>| {
-        let (b, next) = byte().parse(cursor)?;
-        match convert(b) {
-            Some(value) => Ok((value, next)),
-            None => Err(cursor.invalid_error(Cow::Owned(format!("invalid {what}: 0x{b:02X}")))),
-        }
+    checked(byte(), move |b| {
+        convert(b).ok_or_else(|| format!("invalid {what}: 0x{b:02X}"))
     })
 }
 

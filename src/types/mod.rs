@@ -12,6 +12,8 @@ mod tag;
 mod value;
 mod view;
 
+pub(crate) use array::check_data_size;
+
 pub use array::{Array, ArrayView};
 pub use dtype::DType;
 pub use file::{File, FileData, FileHandle, FileView};

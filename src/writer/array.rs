@@ -1,10 +1,12 @@
 //! Array serialization
 
-use crate::types::{Array, ValueTag};
+use crate::types::{Array, ValueTag, check_data_size};
 use std::io::{self, Write};
 
-/// Write an array value
+/// Write an array value; its data must be the size its dtype and shape need
 pub fn write_array<W: Write>(writer: &mut W, arr: &Array) -> io::Result<()> {
+    check_data_size(arr.dtype, &arr.shape, arr.data.len())
+        .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))?;
     writer.write_all(&[ValueTag::Array as u8])?;
     writer.write_all(&[arr.dtype as u8])?;
     writer.write_all(&[arr.shape.len() as u8])?;
@@ -92,6 +94,13 @@ mod tests {
     }
 
     #[test]
+    fn data_size_must_match_dtype_and_shape() {
+        let arr = Array::new(DType::F32, vec![1000], vec![0; 3]);
+        let error = write_array(&mut Vec::new(), &arr).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
     fn roundtrip_all_dtypes() {
         for dtype in [
             DType::U8,
@@ -106,7 +115,7 @@ mod tests {
             DType::F64,
         ] {
             let data = vec![0u8; 8];
-            let arr = Array::new(dtype, vec![8], data.clone());
+            let arr = Array::new(dtype, vec![8 / dtype.element_size() as u64], data.clone());
 
             let mut buf = Vec::new();
             write_array(&mut buf, &arr).unwrap();

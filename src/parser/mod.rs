@@ -13,9 +13,8 @@ pub use value::parse_value;
 
 use crate::types::{MAGIC, VERSION, ValueView};
 use parsicomb::combinator::{AndExt, MapErrExt, PrecededExt, TerminatedExt};
-use parsicomb::{ByteCursor, Cursor, MapExt, Parser, ParsicombError, eof, is_sequence, parser_fn};
-use primitives::le;
-use std::borrow::Cow;
+use parsicomb::{ByteCursor, MapExt, Parser, ParsicombError, eof, is_sequence};
+use primitives::{checked, le};
 
 /// Parse a blobfig from bytes: the header, one value, and nothing after it
 ///
@@ -35,14 +34,9 @@ pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParsicombError<'_>> {
 /// The 16-byte header: magic bytes, a u32 version that must be [`VERSION`],
 /// and u32 flags (reserved)
 fn header<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error = ParsicombError<'a>> {
-    let version = parser_fn(|cursor: ByteCursor<'a>| {
-        let (version, next) = le(u32::from_le_bytes).parse(cursor)?;
-        match version {
-            VERSION => Ok(((), next)),
-            _ => Err(cursor.invalid_error(Cow::Owned(format!(
-                "unsupported version {version}, expected {VERSION}"
-            )))),
-        }
+    let version = checked(le(u32::from_le_bytes), |version| match version {
+        VERSION => Ok(()),
+        _ => Err(format!("unsupported version {version}, expected {VERSION}")),
     });
     is_sequence(&MAGIC[..])
         .and(version)
