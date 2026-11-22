@@ -11,46 +11,44 @@ mod value;
 
 pub use value::parse_value;
 
-use crate::types::{HEADER_SIZE, MAGIC, VERSION, ValueView};
-use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError};
+use crate::types::{MAGIC, VERSION, ValueView};
+use parsicomb::combinator::{AndExt, MapErrExt, PrecededExt, TerminatedExt};
+use parsicomb::{ByteCursor, Cursor, MapExt, Parser, ParsicombError, eof, is_sequence, parser_fn};
+use primitives::le;
 use std::borrow::Cow;
 
-/// Parse a blobfig from bytes
+/// Parse a blobfig from bytes: the header, one value, and nothing after it
 ///
 /// Returns a ValueView that borrows from the input bytes.
 /// For zero-copy parsing from memory-mapped files, the bytes
 /// must remain valid for the lifetime of the returned ValueView.
+/// Error positions are offsets into `bytes`.
 pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParsicombError<'_>> {
-    // Check minimum size for header
-    if bytes.len() < HEADER_SIZE {
-        return Err(ParsicombError::EndOfInput(CodeLoc::new(bytes, 0)));
-    }
-
-    // Validate magic bytes
-    if &bytes[0..8] != MAGIC {
-        return Err(ParsicombError::Invalid {
-            message: Cow::Borrowed("Invalid magic bytes"),
-            loc: CodeLoc::new(bytes, 0),
-        });
-    }
-
-    // Validate version
-    let version = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
-    if version != VERSION {
-        return Err(ParsicombError::Invalid {
-            message: Cow::Owned(format!(
-                "Unsupported version: {}, expected {}",
-                version, VERSION
-            )),
-            loc: CodeLoc::new(bytes, 8),
-        });
-    }
-
-    // Parse value starting after header
-    let cursor = ByteCursor::new(&bytes[HEADER_SIZE..]);
-    let (value, _) = parse_value().parse(cursor)?;
-
+    let file = parse_value()
+        .preceded_by(header())
+        .terminated_by(eof())
+        .map_err(ParsicombError::from);
+    let (value, _) = file.parse(ByteCursor::new(bytes))?;
     Ok(value)
+}
+
+/// The 16-byte header: magic bytes, a u32 version that must be [`VERSION`],
+/// and u32 flags (reserved)
+fn header<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error = ParsicombError<'a>> {
+    let version = parser_fn(|cursor: ByteCursor<'a>| {
+        let (version, next) = le(u32::from_le_bytes).parse(cursor)?;
+        match version {
+            VERSION => Ok(((), next)),
+            _ => Err(cursor.invalid_error(Cow::Owned(format!(
+                "unsupported version {version}, expected {VERSION}"
+            )))),
+        }
+    });
+    is_sequence(&MAGIC[..])
+        .and(version)
+        .and(le(u32::from_le_bytes))
+        .map(|_| ())
+        .map_err(ParsicombError::from)
 }
 
 #[cfg(test)]
@@ -151,9 +149,11 @@ mod tests {
 
     #[test]
     fn test_invalid_magic() {
-        let bytes = vec![0x00; HEADER_SIZE]; // Wrong magic but right size
-        let result = parse(&bytes);
-        assert!(result.is_err());
+        let mut bytes = writer::to_bytes(Value::Bool(true)).unwrap();
+        bytes[6] = b'X'; // "BLOBFIX\0"
+        let error = parse(&bytes).unwrap_err();
+        assert_eq!(error.position(), 6);
+        assert!(error.to_string().contains("BLOBFIG"), "{error}");
     }
 
     #[test]
@@ -162,8 +162,20 @@ mod tests {
         bytes.extend_from_slice(MAGIC);
         bytes.extend_from_slice(&99u32.to_le_bytes()); // Wrong version
         bytes.extend_from_slice(&0u32.to_le_bytes()); // flags
-        let result = parse(&bytes);
-        assert!(result.is_err());
+        bytes.extend_from_slice(&[ValueTag::Bool as u8, 1]);
+        let error = parse(&bytes).unwrap_err();
+        assert_eq!(error.position(), 8);
+        assert!(error.to_string().contains("unsupported version 99"));
+    }
+
+    #[test]
+    fn test_trailing_bytes_rejected() {
+        let mut bytes = writer::to_bytes(Value::Bool(true)).unwrap();
+        let end = bytes.len();
+        bytes.push(0);
+        let error = parse(&bytes).unwrap_err();
+        // An offset in the whole file, header included, not in the value
+        assert_eq!(error.position(), end);
     }
 
     // =========================================================================
