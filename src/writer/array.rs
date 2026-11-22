@@ -2,16 +2,26 @@
 
 use super::wire_len;
 use crate::check::check_data_size;
+use crate::error::{LengthField, WriteError};
 use crate::types::{Array, ValueTag};
-use std::io::{self, Write};
+use std::io::Write;
 
 /// Write an array value; its data must be the size its dtype and shape need
-pub fn write_array<W: Write>(writer: &mut W, arr: &Array) -> io::Result<()> {
-    check_data_size(arr.dtype, &arr.shape, arr.data.len())
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
+pub fn write_array<W: Write>(writer: &mut W, arr: &Array) -> Result<(), WriteError> {
+    check_data_size(arr.dtype, &arr.shape, arr.data.len()).map_err(|error| {
+        WriteError::SizeMismatch {
+            dtype: error.dtype,
+            shape: error.shape.to_vec(),
+            needed: error.needed,
+            actual: error.actual,
+        }
+    })?;
     writer.write_all(&[ValueTag::Array as u8])?;
     writer.write_all(&[arr.dtype as u8])?;
-    writer.write_all(&[wire_len::<u8>(arr.shape.len(), "array dimensions")?])?;
+    writer.write_all(&[wire_len::<u8>(
+        arr.shape.len(),
+        LengthField::ArrayDimensions,
+    )?])?;
     for dim in &arr.shape {
         writer.write_all(&dim.to_le_bytes())?;
     }
@@ -32,7 +42,8 @@ mod tests {
         // The dimension count is one byte; 256 used to be written as 0
         let arr = Array::new(DType::U8, vec![1; 256], vec![0]);
         let error = write_array(&mut Vec::new(), &arr).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        let expected = (LengthField::ArrayDimensions, 256);
+        assert!(matches!(error, WriteError::TooLarge { field, len } if (field, len) == expected));
     }
 
     #[test]
@@ -107,7 +118,10 @@ mod tests {
     fn data_size_must_match_dtype_and_shape() {
         let arr = Array::new(DType::F32, vec![1000], vec![0; 3]);
         let error = write_array(&mut Vec::new(), &arr).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        let expected = (Some(4000), 3);
+        assert!(
+            matches!(error, WriteError::SizeMismatch { needed, actual, .. } if (needed, actual) == expected)
+        );
     }
 
     #[test]

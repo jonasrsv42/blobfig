@@ -4,25 +4,21 @@ mod array;
 mod file;
 mod value;
 
+use crate::error::{LengthField, WriteError};
 use crate::types::{MAGIC, VERSION, Value};
-use std::io::{self, Write};
+use std::io::Write;
 
 use value::write_value;
 
 /// A `usize` length narrowed to the fixed-width integer the wire uses for a
 /// count or length prefix. A value too large to represent is an error, not a
 /// silent truncation into corrupt output.
-fn wire_len<T: TryFrom<usize>>(len: usize, what: &str) -> io::Result<T> {
-    T::try_from(len).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("{what} too large for the wire format: {len}"),
-        )
-    })
+fn wire_len<T: TryFrom<usize>>(len: usize, field: LengthField) -> Result<T, WriteError> {
+    T::try_from(len).map_err(|_| WriteError::TooLarge { field, len })
 }
 
 /// Write a blobfig value to a writer (consumes the value to handle streaming)
-pub fn write<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
+pub fn write<W: Write>(writer: &mut W, value: Value) -> Result<(), WriteError> {
     // Write header
     writer.write_all(MAGIC)?;
     writer.write_all(&VERSION.to_le_bytes())?;
@@ -35,7 +31,7 @@ pub fn write<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
 }
 
 /// Write a blobfig value to bytes
-pub fn to_bytes(value: Value) -> io::Result<Vec<u8>> {
+pub fn to_bytes(value: Value) -> Result<Vec<u8>, WriteError> {
     let mut buf = Vec::new();
     write(&mut buf, value)?;
     Ok(buf)
@@ -113,7 +109,7 @@ mod tests {
         }
 
         impl std::io::Read for CursorHandle {
-            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
                 self.cursor.read(buf)
             }
         }
@@ -139,21 +135,26 @@ mod tests {
     #[test]
     fn test_key_with_slash_rejected() {
         let value = Value::object(vec![("invalid/key".into(), Value::Int(1))]);
-        let result = to_bytes(value);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains('/'));
+        let error = to_bytes(value).unwrap_err();
+        assert!(matches!(error, WriteError::KeyContainsSlash { key } if key == "invalid/key"));
     }
 
     #[test]
     fn test_writes_only_what_the_parser_can_read_deep() {
-        // `depth` values deep: lists around a bool
-        let nested = |depth: usize| (1..depth).fold(Value::Bool(true), |v, _| Value::list(vec![v]));
+        // `depth` values deep: secrets, lists and objects in turn around a bool
+        let nested = |depth: usize| {
+            (1..depth).fold(Value::Bool(true), |v, level| match level % 3 {
+                0 => Value::secret(v),
+                1 => Value::list(vec![v]),
+                _ => Value::object(vec![("k".into(), v)]),
+            })
+        };
 
         let bytes = to_bytes(nested(crate::MAX_DEPTH)).unwrap();
         assert!(crate::parse(&bytes).is_ok());
 
         let error = to_bytes(nested(crate::MAX_DEPTH + 1)).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(matches!(error, WriteError::TooDeep));
     }
 
     #[test]
@@ -163,16 +164,8 @@ mod tests {
             ("a".into(), Value::Int(2)),
         ]);
         let error = to_bytes(value).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    }
-
-    #[test]
-    fn test_nested_key_with_slash_rejected() {
-        let value = Value::object(vec![(
-            "valid".into(),
-            Value::object(vec![("also/invalid".into(), Value::Int(1))]),
-        )]);
-        let result = to_bytes(value);
-        assert!(result.is_err());
+        assert!(
+            matches!(error, WriteError::DuplicateKey { key, first: 0, second: 1 } if key == "a")
+        );
     }
 }

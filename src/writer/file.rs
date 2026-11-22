@@ -1,15 +1,17 @@
 //! File serialization with streaming support
 
 use super::wire_len;
+use crate::error::{LengthField, WriteError};
 use crate::types::{File, FileData, ValueTag};
 use std::io::{self, Read, Write};
 
 /// Write a file value (handles streaming from handle)
-pub fn write_file<W: Write>(writer: &mut W, mut file: File) -> io::Result<()> {
+pub fn write_file<W: Write>(writer: &mut W, mut file: File) -> Result<(), WriteError> {
     writer.write_all(&[ValueTag::File as u8])?;
 
     let mimetype_bytes = file.mimetype.as_bytes();
-    writer.write_all(&wire_len::<u16>(mimetype_bytes.len(), "mimetype")?.to_le_bytes())?;
+    writer
+        .write_all(&wire_len::<u16>(mimetype_bytes.len(), LengthField::Mimetype)?.to_le_bytes())?;
     writer.write_all(mimetype_bytes)?;
 
     let size = file.size();
@@ -32,18 +34,20 @@ fn stream_from_handle<W: Write, R: Read + ?Sized>(
     writer: &mut W,
     reader: &mut R,
     size: u64,
-) -> io::Result<()> {
+) -> Result<(), WriteError> {
     let mut remaining = size;
     let mut buf = [0u8; 8192];
 
     while remaining > 0 {
-        let to_read = std::cmp::min(remaining as usize, buf.len());
-        let n = reader.read(&mut buf[..to_read])?;
+        let to_read = remaining.min(buf.len() as u64) as usize;
+        let n = match reader.read(&mut buf[..to_read]) {
+            Ok(n) => n,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(WriteError::FileRead(error)),
+        };
         if n == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Handle ended before expected size",
-            ));
+            let read = size - remaining;
+            return Err(WriteError::FileTooShort { size, read });
         }
         writer.write_all(&buf[..n])?;
         remaining -= n as u64;
@@ -60,11 +64,22 @@ mod tests {
     use parsicomb::{ByteCursor, Parser};
 
     #[test]
+    fn handle_shorter_than_its_size_rejected() {
+        // Writing on would give a blob whose data length lies
+        let error = stream_from_handle(&mut Vec::new(), &mut &b"abc"[..], 5).unwrap_err();
+        assert!(matches!(
+            error,
+            WriteError::FileTooShort { size: 5, read: 3 }
+        ));
+    }
+
+    #[test]
     fn mimetype_longer_than_u16_rejected() {
         // The mimetype length is a u16; 65536 used to be written as 0
         let file = File::from_bytes("x".repeat(65536), Vec::new());
         let error = write_file(&mut Vec::new(), file).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        let expected = (LengthField::Mimetype, 65536);
+        assert!(matches!(error, WriteError::TooLarge { field, len } if (field, len) == expected));
     }
 
     #[test]
