@@ -60,6 +60,64 @@ pub enum Reason {
     TrailingBytes,
 }
 
+/// What a caller can do about a failure: the broad kind of a [`Reason`]
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasonClass {
+    /// The input isn't a blobfig blob at all
+    NotBlobfig,
+    /// A blobfig blob this library can't read, e.g. from a newer writer
+    Unsupported,
+    /// A blob that is cut off or damaged
+    Corrupt,
+    /// A blob that goes past a limit of this parser, such as nesting depth
+    Limit,
+}
+
+impl Reason {
+    /// A stable snake_case name for the reason, e.g. `"bad_tag"`, for logs and
+    /// other languages; an existing reason's code never changes
+    pub fn code(self) -> &'static str {
+        match self {
+            Reason::Truncated => "truncated",
+            Reason::BadMagic => "bad_magic",
+            Reason::UnsupportedVersion { .. } => "unsupported_version",
+            Reason::UnsupportedFlags { .. } => "unsupported_flags",
+            Reason::BadTag { .. } => "bad_tag",
+            Reason::BadDType { .. } => "bad_dtype",
+            Reason::BadBool { .. } => "bad_bool",
+            Reason::InvalidUtf8 => "invalid_utf8",
+            Reason::BadPadding => "bad_padding",
+            Reason::SizeMismatch { .. } => "size_mismatch",
+            Reason::KeyContainsSlash => "key_contains_slash",
+            Reason::DuplicateKey { .. } => "duplicate_key",
+            Reason::TooDeep => "too_deep",
+            Reason::TrailingBytes => "trailing_bytes",
+        }
+    }
+
+    /// The broad kind of failure, for deciding what to do about it
+    pub fn class(self) -> ReasonClass {
+        match self {
+            Reason::BadMagic => ReasonClass::NotBlobfig,
+            Reason::UnsupportedVersion { .. } | Reason::UnsupportedFlags { .. } => {
+                ReasonClass::Unsupported
+            }
+            Reason::TooDeep => ReasonClass::Limit,
+            Reason::Truncated
+            | Reason::BadTag { .. }
+            | Reason::BadDType { .. }
+            | Reason::BadBool { .. }
+            | Reason::InvalidUtf8
+            | Reason::BadPadding
+            | Reason::SizeMismatch { .. }
+            | Reason::KeyContainsSlash
+            | Reason::DuplicateKey { .. }
+            | Reason::TrailingBytes => ReasonClass::Corrupt,
+        }
+    }
+}
+
 impl fmt::Display for Reason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
@@ -140,3 +198,72 @@ impl fmt::Display for ParseError {
 }
 
 impl Error for ParseError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// Codes and classes are read by other languages (blobfigy picks its
+    /// exception class by class), so they must not change, and codes must not
+    /// collide
+    #[test]
+    fn test_reason_codes_and_classes_are_stable() {
+        let reasons = [
+            (Reason::Truncated, "truncated", ReasonClass::Corrupt),
+            (Reason::BadMagic, "bad_magic", ReasonClass::NotBlobfig),
+            (
+                Reason::UnsupportedVersion { found: 0 },
+                "unsupported_version",
+                ReasonClass::Unsupported,
+            ),
+            (
+                Reason::UnsupportedFlags { found: 0 },
+                "unsupported_flags",
+                ReasonClass::Unsupported,
+            ),
+            (Reason::BadTag { found: 0 }, "bad_tag", ReasonClass::Corrupt),
+            (
+                Reason::BadDType { found: 0 },
+                "bad_dtype",
+                ReasonClass::Corrupt,
+            ),
+            (
+                Reason::BadBool { found: 0 },
+                "bad_bool",
+                ReasonClass::Corrupt,
+            ),
+            (Reason::InvalidUtf8, "invalid_utf8", ReasonClass::Corrupt),
+            (Reason::BadPadding, "bad_padding", ReasonClass::Corrupt),
+            (
+                Reason::SizeMismatch {
+                    needed: None,
+                    actual: 0,
+                },
+                "size_mismatch",
+                ReasonClass::Corrupt,
+            ),
+            (
+                Reason::KeyContainsSlash,
+                "key_contains_slash",
+                ReasonClass::Corrupt,
+            ),
+            (
+                Reason::DuplicateKey { first: 0 },
+                "duplicate_key",
+                ReasonClass::Corrupt,
+            ),
+            (Reason::TooDeep, "too_deep", ReasonClass::Limit),
+            (
+                Reason::TrailingBytes,
+                "trailing_bytes",
+                ReasonClass::Corrupt,
+            ),
+        ];
+        for (reason, code, class) in reasons {
+            assert_eq!((reason.code(), reason.class()), (code, class), "{reason:?}");
+        }
+        let codes: HashSet<_> = reasons.iter().map(|(reason, ..)| reason.code()).collect();
+        assert_eq!(codes.len(), reasons.len());
+    }
+}
