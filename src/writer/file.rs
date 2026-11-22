@@ -1,5 +1,6 @@
 //! File serialization with streaming support
 
+use super::wire_len;
 use crate::types::{File, FileData, ValueTag};
 use std::io::{self, Read, Write};
 
@@ -8,7 +9,7 @@ pub fn write_file<W: Write>(writer: &mut W, mut file: File) -> io::Result<()> {
     writer.write_all(&[ValueTag::File as u8])?;
 
     let mimetype_bytes = file.mimetype.as_bytes();
-    writer.write_all(&(mimetype_bytes.len() as u16).to_le_bytes())?;
+    writer.write_all(&wire_len::<u16>(mimetype_bytes.len(), "mimetype")?.to_le_bytes())?;
     writer.write_all(mimetype_bytes)?;
 
     let size = file.size();
@@ -57,6 +58,14 @@ mod tests {
     use crate::parser::parse_value;
     use crate::types::NodeView;
     use parsicomb::{ByteCursor, Parser};
+
+    #[test]
+    fn mimetype_longer_than_u16_rejected() {
+        // The mimetype length is a u16; 65536 used to be written as 0
+        let file = File::from_bytes("x".repeat(65536), Vec::new());
+        let error = write_file(&mut Vec::new(), file).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
 
     #[test]
     fn roundtrip_file_bytes() {

@@ -9,6 +9,18 @@ use std::io::{self, Write};
 
 use value::write_value;
 
+/// A `usize` length narrowed to the fixed-width integer the wire uses for a
+/// count or length prefix. A value too large to represent is an error, not a
+/// silent truncation into corrupt output.
+fn wire_len<T: TryFrom<usize>>(len: usize, what: &str) -> io::Result<T> {
+    T::try_from(len).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{what} too large for the wire format: {len}"),
+        )
+    })
+}
+
 /// Write a blobfig value to a writer (consumes the value to handle streaming)
 pub fn write<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
     // Write header

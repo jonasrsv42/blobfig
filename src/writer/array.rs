@@ -1,5 +1,6 @@
 //! Array serialization
 
+use super::wire_len;
 use crate::check::check_data_size;
 use crate::types::{Array, ValueTag};
 use std::io::{self, Write};
@@ -10,7 +11,7 @@ pub fn write_array<W: Write>(writer: &mut W, arr: &Array) -> io::Result<()> {
         .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))?;
     writer.write_all(&[ValueTag::Array as u8])?;
     writer.write_all(&[arr.dtype as u8])?;
-    writer.write_all(&[arr.shape.len() as u8])?;
+    writer.write_all(&[wire_len::<u8>(arr.shape.len(), "array dimensions")?])?;
     for dim in &arr.shape {
         writer.write_all(&dim.to_le_bytes())?;
     }
@@ -25,6 +26,14 @@ mod tests {
     use crate::parser::parse_value;
     use crate::types::{DType, NodeView};
     use parsicomb::{ByteCursor, Parser};
+
+    #[test]
+    fn more_than_255_dimensions_rejected() {
+        // The dimension count is one byte; 256 used to be written as 0
+        let arr = Array::new(DType::U8, vec![1; 256], vec![0]);
+        let error = write_array(&mut Vec::new(), &arr).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
 
     #[test]
     fn roundtrip_array_1d_u8() {
