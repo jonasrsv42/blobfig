@@ -6,13 +6,21 @@ use super::primitives::{checked_byte, le};
 use super::string::utf8;
 use crate::types::{ValueTag, ValueView};
 use parsicomb::byte::byte;
-use parsicomb::combinator::AndExt;
+use parsicomb::combinator::{AndExt, MapErrExt, MaxDepthExt};
 use parsicomb::{ByteCursor, Parser, ParsicombError, ntimes, parser_fn};
+
+/// How many values deep the input may nest, counting the innermost value:
+/// deeper input fails with "maximum nesting depth exceeded" instead of
+/// overflowing the stack.
+///
+/// One level takes about 480 bytes of stack in a release build, so 32 levels
+/// fit the 32 KiB main task of an ESP32 with room to spare.
+pub const MAX_DEPTH: usize = 32;
 
 /// Parse a value, dispatching on its tag byte
 pub fn parse_value<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = ValueView<'a>, Error = ParsicombError<'a>> {
-    parser_fn(|cursor: ByteCursor<'a>| {
+    parser_fn(|cursor: ByteCursor<'a>| -> Result<_, ParsicombError<'a>> {
         let (tag, cursor) = checked_byte(ValueTag::from_u8, "value tag").parse(cursor)?;
 
         match tag {
@@ -59,6 +67,8 @@ pub fn parse_value<'a>()
             }
         }
     })
+    .max_depth(MAX_DEPTH)
+    .map_err(ParsicombError::from)
 }
 
 #[cfg(test)]
@@ -197,6 +207,24 @@ mod tests {
         // Use path accessor
         let inner_val = val.get("inner/value").unwrap();
         assert_eq!(inner_val.as_int(), Some(123));
+    }
+
+    #[test]
+    fn test_nesting_deeper_than_max_depth_fails() {
+        // `secrets` Secret tags wrapping a bool: `secrets + 1` values deep
+        let nested = |secrets: usize| {
+            let mut bytes = vec![ValueTag::Secret as u8; secrets];
+            bytes.extend_from_slice(&[ValueTag::Bool as u8, 1]);
+            bytes
+        };
+
+        let at_limit = nested(MAX_DEPTH - 1);
+        assert!(parse_value().parse(ByteCursor::new(&at_limit)).is_ok());
+
+        let too_deep = nested(MAX_DEPTH);
+        let error = parse_value().parse(ByteCursor::new(&too_deep)).unwrap_err();
+        assert_eq!(error.position(), MAX_DEPTH);
+        assert!(error.to_string().contains("maximum nesting depth exceeded"));
     }
 
     #[test]
