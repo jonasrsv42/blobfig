@@ -1,20 +1,22 @@
 //! File blob parsing
 
+use super::Failure;
+use super::or_truncated::OrTruncatedExt;
 use super::primitives::le;
 use super::string::utf8;
 use super::take::sized;
 use crate::types::FileView;
-use parsicomb::combinator::{AndExt, MapErrExt};
-use parsicomb::{ByteCursor, MapExt, Parser, ParsicombError};
+use parsicomb::combinator::AndExt;
+use parsicomb::{ByteCursor, MapExt, Parser};
 
 /// Parse a file value (after tag has been consumed): a u16-length mimetype,
 /// then u64-length data (zero-copy)
 pub fn parse_file_body<'a>()
--> impl Parser<Cursor = ByteCursor<'a>, Output = FileView<'a>, Error = ParsicombError<'a>> {
+-> impl Parser<Cursor = ByteCursor<'a>, Output = FileView<'a>, Error = Failure<'a>> {
     utf8(le(u16::from_le_bytes), "mimetype")
         .and(sized(le(u64::from_le_bytes)))
         .map(|(mimetype, data)| FileView { mimetype, data })
-        .map_err(ParsicombError::from)
+        .or_truncated()
 }
 
 #[cfg(test)]

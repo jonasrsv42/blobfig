@@ -1,33 +1,35 @@
 //! Fixed-width fields and checks: little-endian numbers, checked values
 
-use parsicomb::byte::byte;
+use super::Failure;
+use super::or_truncated::OrTruncatedExt;
+use super::rejection::Rejection;
+use crate::error::Reason;
 use parsicomb::{ByteCursor, Cursor, Parser, ParsicombError, parser_fn};
-use std::borrow::Cow;
 
-/// Run `parser`, then `check` its output; a refused output is reported at
-/// the start of what `parser` read, with `check`'s message
+/// Run `parser`, then `check` its output; a rejected output is reported at
+/// the start of what `parser` read
 pub fn checked<'a, T, U>(
-    parser: impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = ParsicombError<'a>>,
-    check: impl Fn(T) -> Result<U, String>,
-) -> impl Parser<Cursor = ByteCursor<'a>, Output = U, Error = ParsicombError<'a>> {
+    parser: impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = Failure<'a>>,
+    check: impl Fn(T) -> Result<U, Rejection>,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = U, Error = Failure<'a>> {
     parser_fn(move |cursor: ByteCursor<'a>| {
         let (value, next) = parser.parse(cursor)?;
         match check(value) {
             Ok(value) => Ok((value, next)),
-            Err(message) => Err(cursor.invalid_error(Cow::Owned(message))),
+            Err(rejection) => Err(rejection.at(cursor.loc())),
         }
     })
 }
 
-/// Read one byte and convert it with `convert`; a byte it refuses (`None`) is
-/// reported at that byte as "invalid `what`: 0x..", e.g.
-/// `checked_byte(DType::from_u8, "dtype")`
+/// Read one byte and convert it with `convert`; a byte it refuses (`None`)
+/// fails at that byte with `reason`, e.g.
+/// `checked_byte(DType::from_u8, |found| Reason::BadDType { found })`
 pub fn checked_byte<'a, T>(
     convert: fn(u8) -> Option<T>,
-    what: &'static str,
-) -> impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = ParsicombError<'a>> {
-    checked(byte(), move |b| {
-        convert(b).ok_or_else(|| format!("invalid {what}: 0x{b:02X}"))
+    reason: fn(u8) -> Reason,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = Failure<'a>> {
+    checked(le(u8::from_le_bytes), move |b| {
+        convert(b).ok_or_else(|| reason(b).into())
     })
 }
 
@@ -35,7 +37,7 @@ pub fn checked_byte<'a, T>(
 /// `le(u32::from_le_bytes)`
 pub fn le<'a, const N: usize, T>(
     from: fn([u8; N]) -> T,
-) -> impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = ParsicombError<'a>> {
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = Failure<'a>> {
     parser_fn(move |cursor: ByteCursor<'a>| {
         let (data, pos) = cursor.inner();
         match data.get(pos..).and_then(<[u8]>::first_chunk::<N>) {
@@ -43,6 +45,7 @@ pub fn le<'a, const N: usize, T>(
             None => Err(ParsicombError::EndOfInput(cursor.loc())),
         }
     })
+    .or_truncated()
 }
 
 #[cfg(test)]
@@ -100,15 +103,5 @@ mod tests {
 
         assert_eq!(v1, 42);
         assert_eq!(v2, 123);
-    }
-
-    #[test]
-    fn test_short_input_is_end_of_input() {
-        let data = &[0x01, 0x02, 0x03];
-        let error = le(u32::from_le_bytes)
-            .parse(ByteCursor::new(data))
-            .unwrap_err();
-        assert!(matches!(error, ParsicombError::EndOfInput(_)));
-        assert_eq!(error.position(), 0);
     }
 }

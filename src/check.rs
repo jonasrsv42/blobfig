@@ -4,5 +4,5 @@
 mod data_size;
 mod keys;
 
-pub(crate) use data_size::check_data_size;
-pub(crate) use keys::check_keys;
+pub(crate) use data_size::{DataSizeError, check_data_size};
+pub(crate) use keys::{KeyError, check_keys};

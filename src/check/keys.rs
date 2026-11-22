@@ -1,5 +1,6 @@
 //! Object key rules, shared by the parser and the writer
 
+use crate::error::Reason;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
@@ -23,15 +24,21 @@ pub(crate) enum KeyProblem {
     Duplicate { first: usize },
 }
 
+impl KeyError<'_> {
+    pub fn reason(&self) -> Reason {
+        match self.problem {
+            KeyProblem::ContainsSlash => Reason::KeyContainsSlash,
+            KeyProblem::Duplicate { .. } => Reason::DuplicateKey,
+        }
+    }
+}
+
 impl fmt::Display for KeyError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {:?}", self.reason(), self.key)?;
         match self.problem {
-            KeyProblem::ContainsSlash => write!(f, "key contains '/': {:?}", self.key),
-            KeyProblem::Duplicate { first } => write!(
-                f,
-                "duplicate key: {:?} (entries {first} and {})",
-                self.key, self.index
-            ),
+            KeyProblem::ContainsSlash => Ok(()),
+            KeyProblem::Duplicate { first } => write!(f, " (entries {first} and {})", self.index),
         }
     }
 }

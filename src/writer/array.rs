@@ -8,7 +8,7 @@ use std::io::{self, Write};
 /// Write an array value; its data must be the size its dtype and shape need
 pub fn write_array<W: Write>(writer: &mut W, arr: &Array) -> io::Result<()> {
     check_data_size(arr.dtype, &arr.shape, arr.data.len())
-        .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))?;
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     writer.write_all(&[ValueTag::Array as u8])?;
     writer.write_all(&[arr.dtype as u8])?;
     writer.write_all(&[wire_len::<u8>(arr.shape.len(), "array dimensions")?])?;

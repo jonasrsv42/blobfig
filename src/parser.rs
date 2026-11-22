@@ -4,52 +4,255 @@
 
 mod array;
 mod file;
+mod or_truncated;
 mod primitives;
+mod rejection;
 mod string;
 mod take;
 mod value;
 
-pub use value::parse_value;
+pub use value::MAX_DEPTH;
+pub(crate) use value::parse_value;
 
+use crate::error::{ParseError, Reason};
 use crate::types::{MAGIC, VERSION, ValueView};
-use parsicomb::combinator::{AndExt, MapErrExt, PrecededExt, TerminatedExt};
-use parsicomb::{ByteCursor, MapExt, Parser, ParsicombError, eof, is_sequence};
+use or_truncated::OrTruncatedExt;
+use parsicomb::combinator::{AndExt, MapErrExt, PrecededExt, ReasonExt, TerminatedExt};
+use parsicomb::{ByteCursor, ErrorNode, MapExt, Parser, ParsicombError, eof, is_sequence};
 use primitives::{checked, le};
+
+/// The error of the parsers inside: a parsicomb failure with a [`Reason`],
+/// turned into a [`ParseError`] once, by [`parse`]
+pub(crate) type Failure<'a> = parsicomb::Failure<'a, Reason>;
 
 /// Parse a blobfig from bytes: the header, one value, and nothing after it
 ///
 /// Returns a ValueView that borrows from the input bytes.
 /// For zero-copy parsing from memory-mapped files, the bytes
 /// must remain valid for the lifetime of the returned ValueView.
-/// Error positions are offsets into `bytes`.
-pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParsicombError<'_>> {
+pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParseError> {
+    let end = eof().reason(Reason::TrailingBytes).map_err(Failure::from);
     let file = parse_value()
         .preceded_by(header())
-        .terminated_by(eof())
-        .map_err(ParsicombError::from);
-    let (value, _) = file.parse(ByteCursor::new(bytes))?;
-    Ok(value)
+        .terminated_by(end)
+        .or_truncated();
+    match file.parse(ByteCursor::new(bytes)) {
+        Ok((value, _)) => Ok(value),
+        Err(failure) => Err(to_parse_error(failure)),
+    }
+}
+
+/// The owned error for a failure: its reason and offset, and the message the
+/// parser gave, or else the reason's own description
+///
+/// The message is only recovered from a plain `ParsicombError::Invalid`,
+/// which is how [`Rejection`](rejection::Rejection) builds every specific
+/// one. A rule put under `commit`, `attempt` or `skip_then` would box its
+/// errors, and their messages would fall back to the reason's description.
+fn to_parse_error(failure: Failure<'_>) -> ParseError {
+    let reason = failure.reason();
+    let offset = failure.progress().position();
+    let message = match ParsicombError::from(failure) {
+        ParsicombError::Invalid { message, .. } => message.into_owned(),
+        _ => reason.to_string(),
+    };
+    ParseError::new(reason, offset, message)
 }
 
 /// The 16-byte header: magic bytes, a u32 version that must be [`VERSION`],
 /// and u32 flags (reserved)
-fn header<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error = ParsicombError<'a>> {
-    let version = checked(le(u32::from_le_bytes), |version| match version {
+fn header<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error = Failure<'a>> {
+    let magic = is_sequence(&MAGIC[..])
+        .reason(Reason::BadMagic)
+        .map_err(Failure::from);
+    let version = checked(le(u32::from_le_bytes), |found| match found {
         VERSION => Ok(()),
-        _ => Err(format!("unsupported version {version}, expected {VERSION}")),
+        _ => Err(Reason::UnsupportedVersion { found }.into()),
     });
-    is_sequence(&MAGIC[..])
+    magic
         .and(version)
         .and(le(u32::from_le_bytes))
         .map(|_| ())
-        .map_err(ParsicombError::from)
+        .or_truncated()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{NodeView, ObjectNode, Value, ValueTag};
+    use crate::parser::value::MAX_DEPTH;
+    use crate::types::{DType, NodeView, ObjectNode, Value, ValueTag};
     use crate::writer;
+
+    /// Every way a blob can fail, as a caller sees it: the reason, the offset
+    /// into the input, and the message
+    #[test]
+    fn test_parse_errors() {
+        let header = |version: u32| {
+            let mut bytes = MAGIC.to_vec();
+            bytes.extend_from_slice(&version.to_le_bytes());
+            bytes.extend_from_slice(&0u32.to_le_bytes()); // flags
+            bytes
+        };
+        // The header, then `body`, which starts at offset 16
+        let blob = |body: &[&[u8]]| [header(VERSION), body.concat()].concat();
+        let (object, list, array, string) = (
+            ValueTag::Object as u8,
+            ValueTag::List as u8,
+            ValueTag::Array as u8,
+            ValueTag::String as u8,
+        );
+        let (bool, secret) = (ValueTag::Bool as u8, ValueTag::Secret as u8);
+        let u16 = |n: u16| n.to_le_bytes();
+        let u32 = |n: u32| n.to_le_bytes();
+        let u64 = |n: u64| n.to_le_bytes();
+
+        let cases: Vec<(&str, Vec<u8>, Reason, usize, &str)> = vec![
+            (
+                "shorter than magic",
+                b"BLOB".to_vec(),
+                Reason::BadMagic,
+                4,
+                "not a blobfig file (bad magic bytes)",
+            ),
+            (
+                "wrong magic",
+                [b"BLOBFIX\0".as_slice(), &header(VERSION)[8..], &[bool, 1]].concat(),
+                Reason::BadMagic,
+                6,
+                "not a blobfig file (bad magic bytes)",
+            ),
+            (
+                "newer version",
+                [header(99), vec![bool, 1]].concat(),
+                Reason::UnsupportedVersion { found: 99 },
+                8,
+                "unsupported version 99, expected 1",
+            ),
+            (
+                "no value",
+                blob(&[]),
+                Reason::Truncated,
+                16,
+                "unexpected end of input",
+            ),
+            (
+                "length past the end",
+                blob(&[&[string], &u32(u32::MAX)]),
+                Reason::Truncated,
+                21,
+                "unexpected end of input",
+            ),
+            (
+                "unknown tag",
+                blob(&[&[0xFF]]),
+                Reason::BadTag { found: 0xFF },
+                16,
+                "invalid value tag: 0xFF",
+            ),
+            (
+                "bool not 0 or 1",
+                blob(&[&[bool, 2]]),
+                Reason::BadBool { found: 2 },
+                17,
+                "invalid bool: 0x02",
+            ),
+            (
+                "unknown dtype",
+                blob(&[&[array, 0xEE]]),
+                Reason::BadDType { found: 0xEE },
+                17,
+                "invalid dtype: 0xEE",
+            ),
+            (
+                "array data too short",
+                blob(&[&[array, DType::F32 as u8, 1], &u64(1000), &u64(3), &[0; 3]]),
+                Reason::SizeMismatch {
+                    needed: Some(4000),
+                    actual: 3,
+                },
+                17,
+                "array data is 3 bytes, but F32 with shape [1000] needs 4000 bytes",
+            ),
+            (
+                "array shape overflows",
+                blob(&[
+                    &[array, DType::U8 as u8, 2],
+                    &u64(u64::MAX),
+                    &u64(2),
+                    &u64(0),
+                ]),
+                Reason::SizeMismatch {
+                    needed: None,
+                    actual: 0,
+                },
+                17,
+                "array data is 0 bytes, but U8 with shape [18446744073709551615, 2] needs more bytes than fit in a u64",
+            ),
+            (
+                "invalid UTF-8 in key",
+                blob(&[&[object], &u32(1), &u16(2), b"a\xFF", &[bool, 1]]),
+                Reason::InvalidUtf8,
+                24,
+                "invalid UTF-8 in key",
+            ),
+            (
+                "key with slash",
+                blob(&[&[object], &u32(1), &u16(3), b"a/b", &[bool, 1]]),
+                Reason::KeyContainsSlash,
+                23,
+                r#"key contains '/': "a/b""#,
+            ),
+            (
+                "duplicate key",
+                blob(&[
+                    &[object],
+                    &u32(2),
+                    &u16(1),
+                    b"a",
+                    &[bool, 1],
+                    &u16(1),
+                    b"a",
+                    &[bool, 1],
+                ]),
+                Reason::DuplicateKey,
+                28,
+                r#"duplicate key: "a" (entries 0 and 1)"#,
+            ),
+            (
+                "nested too deep",
+                blob(&[&[secret; MAX_DEPTH], &[bool, 1]]),
+                Reason::TooDeep,
+                16 + MAX_DEPTH,
+                "maximum nesting depth exceeded",
+            ),
+            (
+                "too deep inside a list",
+                blob(&[&[list], &u32(1), &[secret; MAX_DEPTH - 1], &[bool, 1]]),
+                Reason::TooDeep,
+                21 + MAX_DEPTH - 1,
+                "maximum nesting depth exceeded",
+            ),
+            (
+                "trailing bytes",
+                blob(&[&[bool, 1, 0]]),
+                Reason::TrailingBytes,
+                18,
+                "bytes left over after the value",
+            ),
+        ];
+
+        for (name, input, reason, offset, message) in cases {
+            let error = parse(&input).unwrap_err();
+            assert_eq!(
+                (error.reason(), error.offset(), error.message()),
+                (reason, offset, message),
+                "{name}"
+            );
+        }
+
+        let error = parse(&blob(&[&[0xFF]])).unwrap_err();
+        assert_eq!(error.to_string(), "invalid value tag: 0xFF at offset 16");
+    }
 
     #[test]
     fn test_roundtrip_bool() {
@@ -139,37 +342,6 @@ mod tests {
         let threshold = parsed.get("config/threshold").unwrap();
         let f = threshold.as_float().unwrap();
         assert!((f - 0.5).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_invalid_magic() {
-        let mut bytes = writer::to_bytes(Value::Bool(true)).unwrap();
-        bytes[6] = b'X'; // "BLOBFIX\0"
-        let error = parse(&bytes).unwrap_err();
-        assert_eq!(error.position(), 6);
-        assert!(error.to_string().contains("BLOBFIG"), "{error}");
-    }
-
-    #[test]
-    fn test_invalid_version() {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(MAGIC);
-        bytes.extend_from_slice(&99u32.to_le_bytes()); // Wrong version
-        bytes.extend_from_slice(&0u32.to_le_bytes()); // flags
-        bytes.extend_from_slice(&[ValueTag::Bool as u8, 1]);
-        let error = parse(&bytes).unwrap_err();
-        assert_eq!(error.position(), 8);
-        assert!(error.to_string().contains("unsupported version 99"));
-    }
-
-    #[test]
-    fn test_trailing_bytes_rejected() {
-        let mut bytes = writer::to_bytes(Value::Bool(true)).unwrap();
-        let end = bytes.len();
-        bytes.push(0);
-        let error = parse(&bytes).unwrap_err();
-        // An offset in the whole file, header included, not in the value
-        assert_eq!(error.position(), end);
     }
 
     // =========================================================================

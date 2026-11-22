@@ -1,13 +1,11 @@
 //! Benchmarks isolating the cost of the *failure* path when a blob contains a
 //! large binary payload.
 //!
-//! Hypothesis under test: parsing itself is zero-copy and cheap regardless of
-//! payload size, and constructing an error is also cheap. But *rendering* a
-//! parse error (Display) walks the entire input buffer and allocates a full
-//! `String` copy of it (via `CodeLoc::readable_position` / `context_lines` ->
-//! `String::from_utf8_lossy(whole_buffer)`), so the failure path becomes
-//! O(blob size) the moment anyone formats the error — which is exactly what a
-//! caller does when logging "why did parsing fail".
+//! Parsing is zero-copy, so it should cost the same whatever the payload size,
+//! and so should failing after a big payload and formatting the error, which
+//! is what a caller does when logging why parsing failed. An error that
+//! rendered context from the input once made that O(blob size); these
+//! benchmarks measure that it stays flat.
 //!
 //! Run with: `cargo bench --bench parse_failure`
 
@@ -45,8 +43,7 @@ fn valid_blob(payload: usize) -> Vec<u8> {
 }
 
 /// A blob that contains the full big File, followed by an invalid trailing
-/// value. The big binary parses fine, then parsing fails *after* it — so the
-/// error's location buffer still spans the entire payload.
+/// value. The big binary parses fine, then parsing fails *after* it.
 ///
 /// Layout: List(count=2) { File(big), <invalid tag 0xFF> }
 fn failing_blob(payload: usize) -> Vec<u8> {
@@ -91,7 +88,7 @@ fn bench(c: &mut Criterion) {
     err.finish();
 
     // Failure path, error rendered to a message — the realistic "log why it
-    // failed" case. This is where cost scales with the binary size.
+    // failed" case.
     let mut err_fmt = c.benchmark_group("parse_err_rendered");
     for &size in &sizes {
         let bytes = failing_blob(size);

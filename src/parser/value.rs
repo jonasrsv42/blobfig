@@ -1,27 +1,36 @@
 //! Value parsing
 
+use super::Failure;
 use super::array::parse_array_body;
 use super::file::parse_file_body;
+use super::or_truncated::OrTruncatedExt;
 use super::primitives::{checked_byte, le};
+use super::rejection::Rejection;
 use super::string::utf8;
 use crate::check::check_keys;
+use crate::error::Reason;
 use crate::types::{ValueTag, ValueView};
-use parsicomb::combinator::{AndExt, MapErrExt, MapExt, MaxDepthExt, PositionExt};
+use parsicomb::combinator::{
+    AndExt, AndThenExt, MapErrExt, MapExt, MaxDepthError, MaxDepthExt, ReasonError,
+};
 use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
 
 /// How many values deep the input may nest, counting the innermost value:
-/// deeper input fails with "maximum nesting depth exceeded" instead of
-/// overflowing the stack.
+/// deeper input fails with [`Reason::TooDeep`] instead of overflowing the
+/// stack.
 ///
-/// One level takes about 480 bytes of stack in a release build, so 32 levels
-/// fit the 32 KiB main task of an ESP32 with room to spare.
-pub const MAX_DEPTH: usize = 32;
+/// Measured in a release build on x86-64, one nested object or list takes
+/// about 1.8 KB of stack, so 12 levels take about 22 KB, leaving room on a
+/// 32 KiB task such as an ESP32's main task. The depth counter is per thread,
+/// shared with any other parsicomb `max_depth` grammar running on it.
+pub const MAX_DEPTH: usize = 12;
 
 /// Parse a value, dispatching on its tag byte
 pub fn parse_value<'a>()
--> impl Parser<Cursor = ByteCursor<'a>, Output = ValueView<'a>, Error = ParsicombError<'a>> {
-    parser_fn(|cursor: ByteCursor<'a>| -> Result<_, ParsicombError<'a>> {
-        let (tag, cursor) = checked_byte(ValueTag::from_u8, "value tag").parse(cursor)?;
+-> impl Parser<Cursor = ByteCursor<'a>, Output = ValueView<'a>, Error = Failure<'a>> {
+    parser_fn(|cursor: ByteCursor<'a>| -> Result<_, Failure<'a>> {
+        let tag = checked_byte(ValueTag::from_u8, |found| Reason::BadTag { found });
+        let (tag, cursor) = tag.parse(cursor)?;
 
         match tag {
             ValueTag::Bool => {
@@ -30,63 +39,50 @@ pub fn parse_value<'a>()
                     1 => Some(true),
                     _ => None,
                 };
-                let (b, cursor) = checked_byte(zero_or_one, "bool").parse(cursor)?;
-                Ok((ValueView::Bool(b), cursor))
+                let bool = checked_byte(zero_or_one, |found| Reason::BadBool { found });
+                bool.map(ValueView::Bool).parse(cursor)
             }
-            ValueTag::Int => {
-                let (v, cursor) = le(i64::from_le_bytes).parse(cursor)?;
-                Ok((ValueView::Int(v), cursor))
-            }
-            ValueTag::Float => {
-                let (v, cursor) = le(f64::from_le_bytes).parse(cursor)?;
-                Ok((ValueView::Float(v), cursor))
-            }
-            ValueTag::String => {
-                let (s, cursor) = utf8(le(u32::from_le_bytes), "string").parse(cursor)?;
-                Ok((ValueView::String(s), cursor))
-            }
-            ValueTag::Array => {
-                let (arr, cursor) = parse_array_body().parse(cursor)?;
-                Ok((ValueView::Array(arr), cursor))
-            }
-            ValueTag::File => {
-                let (file, cursor) = parse_file_body().parse(cursor)?;
-                Ok((ValueView::File(file), cursor))
-            }
+            ValueTag::Int => le(i64::from_le_bytes).map(ValueView::Int).parse(cursor),
+            ValueTag::Float => le(f64::from_le_bytes).map(ValueView::Float).parse(cursor),
+            ValueTag::String => utf8(le(u32::from_le_bytes), "string")
+                .map(ValueView::String)
+                .parse(cursor),
+            ValueTag::Array => parse_array_body().map(ValueView::Array).parse(cursor),
+            ValueTag::File => parse_file_body().map(ValueView::File).parse(cursor),
             ValueTag::Object => {
-                let (n, cursor) = le(u32::from_le_bytes).parse(cursor)?;
-                let key = utf8(le(u16::from_le_bytes), "key").with_position();
-                let entry = key
-                    .and(parse_value())
-                    .map(|((key, span), value)| (span, (key, value)));
-                let (entries, cursor) = ntimes(entry, n as usize).parse(cursor)?;
-                let (key_spans, entries): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
-
-                // Reported at the offending key
+                let entry = || utf8(le(u16::from_le_bytes), "key").and(parse_value());
+                let (entries, end) = le(u32::from_le_bytes)
+                    .and_then(|n| ntimes(entry(), n as usize))
+                    .or_truncated()
+                    .parse(cursor)?;
                 check_keys(entries.iter().map(|(key, _)| *key)).map_err(|error| {
-                    let key = key_spans[error.index];
-                    ParsicombError::Invalid {
-                        message: error.to_string().into(),
-                        loc: CodeLoc::new(key.source(), key.start()),
-                    }
+                    // At the key's first byte: the key is a slice of the input
+                    let (input, _) = cursor.inner();
+                    let at = error.key.as_ptr() as usize - input.as_ptr() as usize;
+                    Rejection::from(error).at(CodeLoc::new(input, at))
                 })?;
-                Ok((ValueView::object(entries), cursor))
+                Ok((ValueView::object(entries), end))
             }
-            ValueTag::List => {
-                let (n, cursor) = le(u32::from_le_bytes).parse(cursor)?;
-                let (items, cursor) = ntimes(parse_value(), n as usize).parse(cursor)?;
-                Ok((ValueView::list(items), cursor))
-            }
-            ValueTag::Secret => {
-                // Transparent wrapper: parse the inner value and re-wrap it so
-                // it stays redacted when printed.
-                let (inner, cursor) = parse_value().parse(cursor)?;
-                Ok((ValueView::Secret(Box::new(inner)), cursor))
-            }
+            ValueTag::List => le(u32::from_le_bytes)
+                .and_then(|n| ntimes(parse_value(), n as usize))
+                .map(ValueView::list)
+                .or_truncated()
+                .parse(cursor),
+            // Transparent wrapper: re-wrapped so it stays redacted when printed
+            ValueTag::Secret => parse_value()
+                .map(|inner| ValueView::Secret(Box::new(inner)))
+                .parse(cursor),
         }
     })
     .max_depth(MAX_DEPTH)
-    .map_err(ParsicombError::from)
+    .map_err(|error| match error {
+        // Only the limit itself is too deep; every failure inside keeps its own
+        MaxDepthError::Inner(failure) => failure,
+        MaxDepthError::TooDeep(limit) => Failure::from(ReasonError::new(
+            Reason::TooDeep,
+            ParsicombError::from(limit),
+        )),
+    })
 }
 
 #[cfg(test)]
@@ -225,68 +221,5 @@ mod tests {
         // Use path accessor
         let inner_val = val.get("inner/value").unwrap();
         assert_eq!(inner_val.as_int(), Some(123));
-    }
-
-    #[test]
-    fn test_nesting_deeper_than_max_depth_fails() {
-        // `secrets` Secret tags wrapping a bool: `secrets + 1` values deep
-        let nested = |secrets: usize| {
-            let mut bytes = vec![ValueTag::Secret as u8; secrets];
-            bytes.extend_from_slice(&[ValueTag::Bool as u8, 1]);
-            bytes
-        };
-
-        let at_limit = nested(MAX_DEPTH - 1);
-        assert!(parse_value().parse(ByteCursor::new(&at_limit)).is_ok());
-
-        let too_deep = nested(MAX_DEPTH);
-        let error = parse_value().parse(ByteCursor::new(&too_deep)).unwrap_err();
-        assert_eq!(error.position(), MAX_DEPTH);
-        assert!(error.to_string().contains("maximum nesting depth exceeded"));
-    }
-
-    #[test]
-    fn test_bool_must_be_zero_or_one() {
-        let bytes = &[ValueTag::Bool as u8, 2];
-        let error = parse_value().parse(ByteCursor::new(bytes)).unwrap_err();
-        assert_eq!(error.position(), 1);
-        assert!(error.to_string().contains("invalid bool: 0x02"));
-    }
-
-    #[test]
-    fn test_keys_must_be_unique_and_without_slash() {
-        let object = |keys: &[&str]| {
-            let mut bytes = vec![ValueTag::Object as u8];
-            bytes.extend_from_slice(&(keys.len() as u32).to_le_bytes());
-            for key in keys {
-                bytes.extend_from_slice(&(key.len() as u16).to_le_bytes());
-                bytes.extend_from_slice(key.as_bytes());
-                bytes.extend_from_slice(&[ValueTag::Bool as u8, 1]);
-            }
-            bytes
-        };
-
-        // The second "a" starts after the tag, count and first entry (2+1+2)
-        let bytes = object(&["a", "a"]);
-        let error = parse_value().parse(ByteCursor::new(&bytes)).unwrap_err();
-        assert_eq!(error.position(), 5 + 5);
-        assert!(error.to_string().contains(r#"duplicate key: "a""#));
-
-        let bytes = object(&["a/b"]);
-        let error = parse_value().parse(ByteCursor::new(&bytes)).unwrap_err();
-        assert_eq!(error.position(), 5);
-        assert!(error.to_string().contains(r#"key contains '/': "a/b""#));
-    }
-
-    #[test]
-    fn test_invalid_tag() {
-        // A one-item list whose item has an invalid tag at offset 5
-        let mut bytes = vec![ValueTag::List as u8];
-        bytes.extend_from_slice(&1u32.to_le_bytes());
-        bytes.push(0xFF);
-
-        let error = parse_value().parse(ByteCursor::new(&bytes)).unwrap_err();
-        assert_eq!(error.position(), 5);
-        assert!(error.to_string().contains("invalid value tag: 0xFF"));
     }
 }

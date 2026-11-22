@@ -1,26 +1,26 @@
 //! Zero-copy byte runs: a fixed count, or a length read from the input
 
-use parsicomb::combinator::{AndThenExt, MapErrExt};
+use super::Failure;
+use super::or_truncated::OrTruncatedExt;
+use parsicomb::combinator::AndThenExt;
 use parsicomb::{ByteCursor, Cursor, MapExt, Parser, ParsicombError, parser_fn};
 
 /// Read a length with `length`, then take that many bytes as a zero-copy slice
 pub fn sized<'a, L: Into<u64>>(
-    length: impl Parser<Cursor = ByteCursor<'a>, Output = L, Error = ParsicombError<'a>>,
-) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = ParsicombError<'a>> {
-    length
-        .map(|len| len.into())
-        .and_then(take)
-        .map_err(ParsicombError::from)
+    length: impl Parser<Cursor = ByteCursor<'a>, Output = L, Error = Failure<'a>>,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = Failure<'a>> {
+    length.map(|len| len.into()).and_then(take).or_truncated()
 }
 
 /// Take exactly `count` bytes as a zero-copy slice
 ///
 /// `count` is a `u64` because lengths in the format are. A count too large for
 /// `usize` (on a 32-bit target) can't fit in the input either, so like any
-/// count past the end it fails as end of input, never truncated.
+/// count past the end it fails as [`Reason::Truncated`], instead of being cut
+/// down to fit.
 pub fn take<'a>(
     count: u64,
-) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = ParsicombError<'a>> {
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = Failure<'a>> {
     parser_fn(move |cursor: ByteCursor<'a>| {
         let (data, pos) = cursor.inner();
         let end = usize::try_from(count)
@@ -31,12 +31,12 @@ pub fn take<'a>(
             _ => Err(ParsicombError::EndOfInput(cursor.loc())),
         }
     })
+    .or_truncated()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::primitives::le;
 
     #[test]
     fn test_take_zero() {
@@ -66,14 +66,6 @@ mod tests {
     }
 
     #[test]
-    fn test_take_too_many() {
-        let data = b"hi";
-        let cursor = ByteCursor::new(data);
-        let result = take(10).parse(cursor);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_take_chained() {
         let data = b"helloworld";
         let cursor = ByteCursor::new(data);
@@ -91,16 +83,5 @@ mod tests {
 
         // Verify slice points into original data
         assert!(std::ptr::eq(slice.as_ptr(), data.as_ptr()));
-    }
-
-    #[test]
-    fn test_sized_too_short_is_end_of_input_after_length() {
-        let mut data = 5u32.to_le_bytes().to_vec();
-        data.extend_from_slice(b"ab");
-        let error = sized(le(u32::from_le_bytes))
-            .parse(ByteCursor::new(&data))
-            .unwrap_err();
-        assert!(matches!(error, ParsicombError::EndOfInput(_)));
-        assert_eq!(error.position(), 4);
     }
 }
