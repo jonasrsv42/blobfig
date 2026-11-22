@@ -7,4 +7,4 @@ mod keys;
 
 pub(crate) use data_size::{DataSizeError, check_data_size};
 pub use depth::MAX_DEPTH;
-pub(crate) use keys::{KeyError, check_keys};
+pub(crate) use keys::{KeyProblem, check_keys};

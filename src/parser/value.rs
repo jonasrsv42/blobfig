@@ -7,7 +7,7 @@ use super::or_truncated::OrTruncatedExt;
 use super::primitives::{checked_byte, le};
 use super::rejection::Rejection;
 use super::string::utf8;
-use crate::check::{MAX_DEPTH, check_keys};
+use crate::check::{KeyProblem, MAX_DEPTH, check_keys};
 use crate::error::Reason;
 use crate::types::{ValueTag, ValueView};
 use parsicomb::combinator::{
@@ -46,10 +46,18 @@ pub fn parse_value<'a>()
                     .or_truncated()
                     .parse(cursor)?;
                 check_keys(entries.iter().map(|(key, _)| *key)).map_err(|error| {
-                    // At the key's first byte: the key is a slice of the input
+                    // Keys are slices of the input, so their offsets are where
+                    // they start in it
                     let (input, _) = cursor.inner();
-                    let at = error.key.as_ptr() as usize - input.as_ptr() as usize;
-                    Rejection::from(error).at(CodeLoc::new(input, at))
+                    let offset = |key: &str| key.as_ptr() as usize - input.as_ptr() as usize;
+                    let reason = match error.problem {
+                        KeyProblem::ContainsSlash => Reason::KeyContainsSlash,
+                        KeyProblem::Duplicate { first } => Reason::DuplicateKey {
+                            first: offset(entries[first].0),
+                        },
+                    };
+                    let rejection = Rejection::new(reason, error.to_string());
+                    rejection.at(CodeLoc::new(input, offset(error.key)))
                 })?;
                 Ok((ValueView::object(entries), end))
             }

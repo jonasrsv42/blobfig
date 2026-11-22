@@ -1,7 +1,7 @@
 //! A refused value: why, and what to tell people, failing at a position
 
 use super::Failure;
-use crate::check::{DataSizeError, KeyError};
+use crate::check::DataSizeError;
 use crate::error::Reason;
 use parsicomb::combinator::ReasonError;
 use parsicomb::{CodeLoc, ParsicombError};
@@ -30,12 +30,6 @@ impl Rejection {
 impl From<Reason> for Rejection {
     fn from(reason: Reason) -> Self {
         Rejection::new(reason, reason.to_string())
-    }
-}
-
-impl From<KeyError<'_>> for Rejection {
-    fn from(error: KeyError<'_>) -> Self {
-        Rejection::new(error.reason(), error.to_string())
     }
 }
 

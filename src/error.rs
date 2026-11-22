@@ -7,7 +7,9 @@ use std::fmt;
 /// Why a blob failed to parse; [`ParseError::reason`] returns it
 ///
 /// For code that needs to tell failures apart. Its `Display` is a short
-/// description; the error's own message may say more.
+/// description; the error's own message may say more. Variants that carry
+/// data are `#[non_exhaustive]`, so match them with `{ .. }`: fields can be
+/// added without breaking that.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reason {
@@ -19,24 +21,31 @@ pub enum Reason {
     /// blobfig file, or is shorter than the magic
     BadMagic,
     /// The header names a format version this library doesn't read
+    #[non_exhaustive]
     UnsupportedVersion { found: u32 },
     /// A value starts with a byte that isn't a known value tag, e.g. corrupt
     /// data
+    #[non_exhaustive]
     BadTag { found: u8 },
     /// An array names an element type that doesn't exist, e.g. corrupt data
+    #[non_exhaustive]
     BadDType { found: u8 },
     /// A bool is stored as a byte other than 0 or 1
+    #[non_exhaustive]
     BadBool { found: u8 },
     /// A string, key or mimetype isn't valid UTF-8
     InvalidUtf8,
     /// An array's data length disagrees with its element type and shape
     /// (`needed` is `None` when multiplying out the shape overflows a `u64`
     /// before reaching a zero dimension)
+    #[non_exhaustive]
     SizeMismatch { needed: Option<u64>, actual: u64 },
     /// An object key contains `/`, which separates the parts of a path
     KeyContainsSlash,
-    /// An object has the same key twice
-    DuplicateKey,
+    /// An object has the same key twice; the error's offset is the second,
+    /// `first` the first
+    #[non_exhaustive]
+    DuplicateKey { first: usize },
     /// Values are nested deeper than the parser allows, e.g. hostile or
     /// corrupt input
     TooDeep,
@@ -67,7 +76,9 @@ impl fmt::Display for Reason {
                 }
             }
             Reason::KeyContainsSlash => write!(f, "key contains '/'"),
-            Reason::DuplicateKey => write!(f, "duplicate key"),
+            Reason::DuplicateKey { first } => {
+                write!(f, "duplicate key (first at offset {first})")
+            }
             Reason::TooDeep => write!(f, "maximum nesting depth exceeded"),
             Reason::TrailingBytes => write!(f, "bytes left over after the value"),
         }

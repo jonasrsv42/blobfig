@@ -213,7 +213,7 @@ mod tests {
                     b"a",
                     &[bool, 1],
                 ]),
-                Reason::DuplicateKey,
+                Reason::DuplicateKey { first: 23 },
                 28,
                 r#"duplicate key: "a" (entries 0 and 1)"#,
             ),
