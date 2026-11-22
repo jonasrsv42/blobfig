@@ -26,3 +26,8 @@ criterion = "0.5"
 [[bench]]
 name = "parse_failure"
 harness = false
+
+[[bench]]
+name = "array_access"
+harness = false
+required-features = ["ndarray"]
