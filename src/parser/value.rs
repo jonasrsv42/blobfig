@@ -4,10 +4,10 @@ use super::array::parse_array_body;
 use super::file::parse_file_body;
 use super::primitives::{checked_byte, le};
 use super::string::utf8;
+use crate::check::check_keys;
 use crate::types::{ValueTag, ValueView};
-use parsicomb::byte::byte;
-use parsicomb::combinator::{AndExt, MapErrExt, MaxDepthExt};
-use parsicomb::{ByteCursor, Parser, ParsicombError, ntimes, parser_fn};
+use parsicomb::combinator::{AndExt, MapErrExt, MapExt, MaxDepthExt, PositionExt};
+use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
 
 /// How many values deep the input may nest, counting the innermost value:
 /// deeper input fails with "maximum nesting depth exceeded" instead of
@@ -25,8 +25,13 @@ pub fn parse_value<'a>()
 
         match tag {
             ValueTag::Bool => {
-                let (b, cursor) = byte().parse(cursor)?;
-                Ok((ValueView::Bool(b != 0), cursor))
+                let zero_or_one = |b| match b {
+                    0 => Some(false),
+                    1 => Some(true),
+                    _ => None,
+                };
+                let (b, cursor) = checked_byte(zero_or_one, "bool").parse(cursor)?;
+                Ok((ValueView::Bool(b), cursor))
             }
             ValueTag::Int => {
                 let (v, cursor) = le(i64::from_le_bytes).parse(cursor)?;
@@ -50,8 +55,21 @@ pub fn parse_value<'a>()
             }
             ValueTag::Object => {
                 let (n, cursor) = le(u32::from_le_bytes).parse(cursor)?;
-                let entry = utf8(le(u16::from_le_bytes), "key").and(parse_value());
+                let key = utf8(le(u16::from_le_bytes), "key").with_position();
+                let entry = key
+                    .and(parse_value())
+                    .map(|((key, span), value)| (span, (key, value)));
                 let (entries, cursor) = ntimes(entry, n as usize).parse(cursor)?;
+                let (key_spans, entries): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
+
+                // Reported at the offending key
+                check_keys(entries.iter().map(|(key, _)| *key)).map_err(|error| {
+                    let key = key_spans[error.index];
+                    ParsicombError::Invalid {
+                        message: error.to_string().into(),
+                        loc: CodeLoc::new(key.source(), key.start()),
+                    }
+                })?;
                 Ok((ValueView::object(entries), cursor))
             }
             ValueTag::List => {
@@ -225,6 +243,39 @@ mod tests {
         let error = parse_value().parse(ByteCursor::new(&too_deep)).unwrap_err();
         assert_eq!(error.position(), MAX_DEPTH);
         assert!(error.to_string().contains("maximum nesting depth exceeded"));
+    }
+
+    #[test]
+    fn test_bool_must_be_zero_or_one() {
+        let bytes = &[ValueTag::Bool as u8, 2];
+        let error = parse_value().parse(ByteCursor::new(bytes)).unwrap_err();
+        assert_eq!(error.position(), 1);
+        assert!(error.to_string().contains("invalid bool: 0x02"));
+    }
+
+    #[test]
+    fn test_keys_must_be_unique_and_without_slash() {
+        let object = |keys: &[&str]| {
+            let mut bytes = vec![ValueTag::Object as u8];
+            bytes.extend_from_slice(&(keys.len() as u32).to_le_bytes());
+            for key in keys {
+                bytes.extend_from_slice(&(key.len() as u16).to_le_bytes());
+                bytes.extend_from_slice(key.as_bytes());
+                bytes.extend_from_slice(&[ValueTag::Bool as u8, 1]);
+            }
+            bytes
+        };
+
+        // The second "a" starts after the tag, count and first entry (2+1+2)
+        let bytes = object(&["a", "a"]);
+        let error = parse_value().parse(ByteCursor::new(&bytes)).unwrap_err();
+        assert_eq!(error.position(), 5 + 5);
+        assert!(error.to_string().contains(r#"duplicate key: "a""#));
+
+        let bytes = object(&["a/b"]);
+        let error = parse_value().parse(ByteCursor::new(&bytes)).unwrap_err();
+        assert_eq!(error.position(), 5);
+        assert!(error.to_string().contains(r#"key contains '/': "a/b""#));
     }
 
     #[test]

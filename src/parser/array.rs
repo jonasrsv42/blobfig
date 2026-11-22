@@ -2,7 +2,8 @@
 
 use super::primitives::{checked, checked_byte, le};
 use super::take::sized;
-use crate::types::{ArrayView, DType, check_data_size};
+use crate::check::check_data_size;
+use crate::types::{ArrayView, DType};
 use parsicomb::byte::byte;
 use parsicomb::combinator::{AndExt, AndThenExt, MapErrExt};
 use parsicomb::{ByteCursor, Parser, ParsicombError, ntimes};

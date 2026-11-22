@@ -1,6 +1,7 @@
 //! Value serialization
 
-use crate::types::{Value, ValueTag};
+use crate::check::check_keys;
+use crate::types::{ObjectNode, Value, ValueTag};
 use std::io::{self, Write};
 
 use super::array::write_array;
@@ -46,15 +47,11 @@ pub fn write_value<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
             write_file(writer, file)?;
         }
         Value::Object(entries) => {
+            check_keys(entries.entries().map(|(key, _)| key))
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
             writer.write_all(&[ValueTag::Object as u8])?;
             writer.write_all(&wire_len::<u32>(entries.len(), "object")?.to_le_bytes())?;
             for (key, val) in entries {
-                if key.contains('/') {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("key contains '/': {:?}", key),
-                    ));
-                }
                 let key_bytes = key.as_bytes();
                 writer.write_all(&wire_len::<u16>(key_bytes.len(), "key")?.to_le_bytes())?;
                 writer.write_all(key_bytes)?;

@@ -1,6 +1,7 @@
 //! Array serialization
 
-use crate::types::{Array, ValueTag, check_data_size};
+use crate::check::check_data_size;
+use crate::types::{Array, ValueTag};
 use std::io::{self, Write};
 
 /// Write an array value; its data must be the size its dtype and shape need

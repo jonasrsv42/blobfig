@@ -133,6 +133,16 @@ mod tests {
     }
 
     #[test]
+    fn test_duplicate_key_rejected() {
+        let value = Value::object(vec![
+            ("a".into(), Value::Int(1)),
+            ("a".into(), Value::Int(2)),
+        ]);
+        let error = to_bytes(value).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
     fn test_nested_key_with_slash_rejected() {
         let value = Value::object(vec![(
             "valid".into(),

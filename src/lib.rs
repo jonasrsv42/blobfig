@@ -34,6 +34,7 @@
 //! let bytes = writer::to_bytes(config).unwrap();
 //! ```
 
+mod check;
 pub mod error;
 pub mod parser;
 pub mod types;
