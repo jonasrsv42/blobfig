@@ -59,7 +59,7 @@ fn to_parse_error(failure: Failure<'_>) -> ParseError {
 }
 
 /// The 16-byte header: magic bytes, a u32 version that must be [`VERSION`],
-/// and u32 flags (reserved)
+/// and u32 flags, which must be 0 until a flag is defined
 fn header<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error = Failure<'a>> {
     let magic = is_sequence(&MAGIC[..])
         .reason(Reason::BadMagic)
@@ -68,11 +68,13 @@ fn header<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error = Fai
         VERSION => Ok(()),
         _ => Err(Reason::UnsupportedVersion { found }.into()),
     });
-    magic
-        .and(version)
-        .and(le(u32::from_le_bytes))
-        .map(|_| ())
-        .or_truncated()
+    // A blob from a newer writer may set a flag that changes its layout, so
+    // refusing it is safer than misreading it
+    let flags = checked(le(u32::from_le_bytes), |found| match found {
+        0 => Ok(()),
+        _ => Err(Reason::UnsupportedFlags { found }.into()),
+    });
+    magic.and(version).and(flags).map(|_| ()).or_truncated()
 }
 
 #[cfg(test)]
@@ -126,6 +128,13 @@ mod tests {
                 Reason::UnsupportedVersion { found: 99 },
                 8,
                 "unsupported version 99, expected 1",
+            ),
+            (
+                "unknown flags",
+                [&header(VERSION)[..12], &u32(1), &[bool, 1]].concat(),
+                Reason::UnsupportedFlags { found: 1 },
+                12,
+                "unsupported header flags: 0x00000001",
             ),
             (
                 "no value",

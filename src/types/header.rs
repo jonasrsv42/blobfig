@@ -25,5 +25,6 @@ pub(crate) fn padding_at(position: u64) -> u64 {
     position.next_multiple_of(ALIGNMENT as u64) - position
 }
 
-/// Header size in bytes (magic + version + flags)
+/// Header size in bytes (magic + version + flags; no flags are defined yet, so
+/// they are 0)
 pub const HEADER_SIZE: usize = 16;

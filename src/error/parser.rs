@@ -23,6 +23,10 @@ pub enum Reason {
     /// The header names a format version this library doesn't read
     #[non_exhaustive]
     UnsupportedVersion { found: u32 },
+    /// The header sets flags this library doesn't know, e.g. a blob from a
+    /// newer writer
+    #[non_exhaustive]
+    UnsupportedFlags { found: u32 },
     /// A value starts with a byte that isn't a known value tag, e.g. corrupt
     /// data
     #[non_exhaustive]
@@ -63,6 +67,9 @@ impl fmt::Display for Reason {
             Reason::BadMagic => write!(f, "not a blobfig file (bad magic bytes)"),
             Reason::UnsupportedVersion { found } => {
                 write!(f, "unsupported version {found}, expected {VERSION}")
+            }
+            Reason::UnsupportedFlags { found } => {
+                write!(f, "unsupported header flags: 0x{found:08X}")
             }
             Reason::BadTag { found } => write!(f, "invalid value tag: 0x{found:02X}"),
             Reason::BadDType { found } => write!(f, "invalid dtype: 0x{found:02X}"),
