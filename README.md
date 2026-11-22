@@ -78,8 +78,8 @@ blobfig = { git = "https://github.com/jonasrsv42/blobfig", branch = "main" }
 (the API can still change): `cargo update -p blobfig` moves to the latest.
 To pin a commit in `Cargo.toml` instead, use `rev = "<commit>"`.
 
-It needs Rust 1.85 or newer (edition 2024), or 1.87 with the `ndarray`
-feature. For the API docs, run `cargo doc -p blobfig --all-features --open`.
+It needs Rust 1.87 or newer. For the API docs, run
+`cargo doc -p blobfig --all-features --open`.
 
 ## Your first blob
 
@@ -391,3 +391,7 @@ Install it from a checkout with `./blobfig-cli/install.sh` (into
 [blobfigy](https://github.com/jonasrsv42/blobfigy) reads and writes blobs
 from Python: dicts and lists, numpy arrays as zero-copy views of a
 memory-mapped blob, files and secrets.
+
+## License
+
+MIT

@@ -8,6 +8,8 @@ members = [".", "blobfig-cli"]
 name = "blobfig"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+rust-version = "1.87"
 description = "Binary configuration format with zero-copy parsing"
 
 [features]
@@ -16,9 +18,9 @@ ndarray = ["dep:ndarray"]
 areamy = ["dep:areamy"]
 
 [dependencies]
-parsicomb = { git = "ssh://git@github.com/jonasrsv42/parsicomb"}
+parsicomb = { git = "https://github.com/jonasrsv42/parsicomb" }
 ndarray = { version = "0.17.2", optional = true }
-areamy = { git = "ssh://git@github.com/jonasrsv42/areamy", optional = true }
+areamy = { git = "https://github.com/jonasrsv42/areamy", optional = true }
 
 [dev-dependencies]
 criterion = "0.5"

@@ -2,6 +2,8 @@
 name = "blobfig-cli"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+rust-version = "1.87"
 description = "Command-line tool for inspecting blobfig files"
 
 # Binary is named `blobfig` even though the package is `blobfig-cli`.
