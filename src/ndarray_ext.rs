@@ -53,9 +53,27 @@ impl std::fmt::Display for NdarrayError {
 
 impl std::error::Error for NdarrayError {}
 
-/// Trait for types that can be stored in a blobfig array
-pub trait ArrayType: Sized + Clone + 'static {
+/// Trait for types that can be stored in a blobfig array: the ten numeric
+/// types of [`DType`]
+///
+/// Sealed: converting copies raw bytes into these types, which is only sound
+/// for plain numbers, where any bytes are a valid value.
+pub trait ArrayType: sealed::Sealed + Sized + Clone + 'static {
     const DTYPE: DType;
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for u8 {}
+    impl Sealed for i8 {}
+    impl Sealed for u16 {}
+    impl Sealed for i16 {}
+    impl Sealed for u32 {}
+    impl Sealed for i32 {}
+    impl Sealed for u64 {}
+    impl Sealed for i64 {}
+    impl Sealed for f32 {}
+    impl Sealed for f64 {}
 }
 
 impl ArrayType for u8 {
@@ -132,123 +150,88 @@ impl Array {
 // From blobfig to ndarray (owned)
 // =============================================================================
 
+/// The array's shape as `usize`s for ndarray, after checking that `T` is its
+/// dtype and that `data` is exactly the size the dtype and shape need
+fn checked_shape<T: ArrayType>(
+    dtype: DType,
+    shape: &[u64],
+    data: &[u8],
+) -> Result<Vec<usize>, NdarrayError> {
+    if T::DTYPE != dtype {
+        return Err(NdarrayError::DTypeMismatch {
+            expected: T::DTYPE,
+            actual: dtype,
+        });
+    }
+    let shape_mismatch = || NdarrayError::ShapeMismatch {
+        shape: shape.to_vec(),
+        data_len: data.len(),
+    };
+    if dtype.data_size(shape) != Some(data.len() as u64) {
+        return Err(shape_mismatch());
+    }
+    shape
+        .iter()
+        .map(|&dim| usize::try_from(dim).map_err(|_| shape_mismatch()))
+        .collect()
+}
+
+/// An owned ndarray of the array with `dtype`, `shape` and `data`, copying
+/// `data` into it in one go
+fn copy_to_ndarray<T: ArrayType>(
+    dtype: DType,
+    shape: &[u64],
+    data: &[u8],
+) -> Result<ArrayD<T>, NdarrayError> {
+    let dims = checked_shape::<T>(dtype, shape, data)?;
+    let len = data.len() / std::mem::size_of::<T>();
+    let bytes = len * std::mem::size_of::<T>();
+    let mut elements = Vec::<T>::with_capacity(len);
+    // SAFETY: `bytes` is at most `data.len()` and exactly the room `elements`
+    // has for `len` values, and the two don't overlap, so the copy stays in
+    // bounds whatever the checks above found. `T` is one of the plain numeric
+    // types `ArrayType` is sealed to, for which any bytes are a valid value,
+    // so after the copy the first `len` values are initialized.
+    unsafe {
+        std::ptr::copy_nonoverlapping(data.as_ptr(), elements.as_mut_ptr().cast(), bytes);
+        elements.set_len(len);
+    }
+    ArrayD::from_shape_vec(IxDyn(&dims), elements).map_err(|_| NdarrayError::ShapeMismatch {
+        shape: shape.to_vec(),
+        data_len: data.len(),
+    })
+}
+
 impl Array {
     /// Convert to an ndarray ArrayD
     pub fn to_ndarray<T: ArrayType>(&self) -> Result<ArrayD<T>, NdarrayError> {
-        if T::DTYPE != self.dtype {
-            return Err(NdarrayError::DTypeMismatch {
-                expected: T::DTYPE,
-                actual: self.dtype,
-            });
-        }
-
-        let shape: Vec<usize> = self.shape.iter().map(|&d| d as usize).collect();
-        let expected_len = shape.iter().product::<usize>() * std::mem::size_of::<T>();
-
-        if self.data.len() != expected_len {
-            return Err(NdarrayError::ShapeMismatch {
-                shape: self.shape.clone(),
-                data_len: self.data.len(),
-            });
-        }
-
-        // Copy data into properly typed vec
-        let elements: Vec<T> = self
-            .data
-            .chunks_exact(std::mem::size_of::<T>())
-            .map(|chunk| {
-                let mut arr = [0u8; 16]; // Max size we support
-                arr[..chunk.len()].copy_from_slice(chunk);
-                // SAFETY:
-                // - arr is a local buffer we just wrote valid bytes into
-                // - T is constrained to ArrayType (primitives only)
-                // - All primitive types have no invalid bit patterns
-                // - read_unaligned handles any alignment
-                unsafe { std::ptr::read_unaligned(arr.as_ptr() as *const T) }
-            })
-            .collect();
-
-        ArrayD::from_shape_vec(IxDyn(&shape), elements).map_err(|_| NdarrayError::ShapeMismatch {
-            shape: self.shape.clone(),
-            data_len: self.data.len(),
-        })
+        copy_to_ndarray(self.dtype, &self.shape, &self.data)
     }
 }
 
 impl<'a> ArrayView<'a> {
-    /// Convert to an owned ndarray ArrayD
+    /// Convert to an owned ndarray ArrayD (a copy; see
+    /// [`try_as_ndarray`](Self::try_as_ndarray) for a view)
     pub fn to_ndarray<T: ArrayType>(&self) -> Result<ArrayD<T>, NdarrayError> {
-        if T::DTYPE != self.dtype {
-            return Err(NdarrayError::DTypeMismatch {
-                expected: T::DTYPE,
-                actual: self.dtype,
-            });
-        }
-
-        let shape: Vec<usize> = self.shape.iter().map(|&d| d as usize).collect();
-        let expected_len = shape.iter().product::<usize>() * std::mem::size_of::<T>();
-
-        if self.data.len() != expected_len {
-            return Err(NdarrayError::ShapeMismatch {
-                shape: self.shape.clone(),
-                data_len: self.data.len(),
-            });
-        }
-
-        // Copy data into properly typed vec
-        let elements: Vec<T> = self
-            .data
-            .chunks_exact(std::mem::size_of::<T>())
-            .map(|chunk| {
-                let mut arr = [0u8; 16];
-                arr[..chunk.len()].copy_from_slice(chunk);
-                // SAFETY: same as Array::to_ndarray - local buffer, primitive type
-                unsafe { std::ptr::read_unaligned(arr.as_ptr() as *const T) }
-            })
-            .collect();
-
-        ArrayD::from_shape_vec(IxDyn(&shape), elements).map_err(|_| NdarrayError::ShapeMismatch {
-            shape: self.shape.clone(),
-            data_len: self.data.len(),
-        })
+        copy_to_ndarray(self.dtype, &self.shape, self.data)
     }
 
     /// Try to create a zero-copy ndarray view
     ///
     /// This will fail if the data is not properly aligned for the element type.
     pub fn try_as_ndarray<T: ArrayType>(&self) -> Result<ArrayViewD<'a, T>, NdarrayError> {
-        if T::DTYPE != self.dtype {
-            return Err(NdarrayError::DTypeMismatch {
-                expected: T::DTYPE,
-                actual: self.dtype,
-            });
-        }
-
-        let shape: Vec<usize> = self.shape.iter().map(|&d| d as usize).collect();
-        let expected_len = shape.iter().product::<usize>() * std::mem::size_of::<T>();
-
-        if self.data.len() != expected_len {
-            return Err(NdarrayError::ShapeMismatch {
-                shape: self.shape.clone(),
-                data_len: self.data.len(),
-            });
-        }
-
-        // Check alignment
+        let dims = checked_shape::<T>(self.dtype, &self.shape, self.data)?;
         if !(self.data.as_ptr() as usize).is_multiple_of(std::mem::align_of::<T>()) {
             return Err(NdarrayError::AlignmentError);
         }
-
-        // SAFETY:
-        // - Alignment is checked above before the cast
-        // - Length is validated earlier (shape matches data.len())
-        // - T is constrained to ArrayType (primitives with no invalid bit patterns)
-        // - Lifetime 'a from ArrayView<'a> is preserved in ArrayViewD<'a, T>
-        let slice = unsafe {
-            std::slice::from_raw_parts(self.data.as_ptr() as *const T, shape.iter().product())
-        };
-
-        ArrayViewD::from_shape(IxDyn(&shape), slice).map_err(|_| NdarrayError::ShapeMismatch {
+        // SAFETY: the data is aligned for `T` (checked above), and the slice
+        // covers `data.len() / size_of::<T>()` values, which lie within
+        // `data`. `T` is one of the plain numeric types `ArrayType` is sealed
+        // to, for which any bytes are a valid value. The slice borrows `data`
+        // for `'a`, as the returned view does.
+        let len = self.data.len() / std::mem::size_of::<T>();
+        let slice = unsafe { std::slice::from_raw_parts(self.data.as_ptr().cast::<T>(), len) };
+        ArrayViewD::from_shape(IxDyn(&dims), slice).map_err(|_| NdarrayError::ShapeMismatch {
             shape: self.shape.clone(),
             data_len: self.data.len(),
         })
@@ -297,6 +280,17 @@ mod tests {
 
         let back: ArrayD<u8> = blob.to_ndarray().unwrap();
         assert_eq!(expected, back);
+    }
+
+    #[test]
+    fn size_mismatch_error() {
+        // One f32 is 4 bytes: a fifth isn't silently dropped
+        let array = Array::new(DType::F32, vec![1], vec![0; 5]);
+        let error = array.to_ndarray::<f32>().unwrap_err();
+        assert!(matches!(
+            error,
+            NdarrayError::ShapeMismatch { data_len: 5, .. }
+        ));
     }
 
     #[test]
