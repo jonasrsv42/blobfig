@@ -1,54 +1,18 @@
-//! Primitive binary parsers built from combinators
+//! Little-endian fixed-width numbers
 
-use super::take::take;
-use parsicomb::MapExt;
-use parsicomb::{ByteCursor, Parser, ParsicombError, byte::byte};
+use parsicomb::{ByteCursor, Cursor, Parser, ParsicombError, parser_fn};
 
-/// Parse a u8
-pub fn u8_parser<'a>()
--> impl Parser<Cursor = ByteCursor<'a>, Output = u8, Error = ParsicombError<'a>> {
-    byte()
-}
-
-/// Parse a u16 (little-endian)
-pub fn u16_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = u16, Error = ParsicombError<'a>>
-{
-    take(2).map(|bytes: &[u8]| u16::from_le_bytes([bytes[0], bytes[1]]))
-}
-
-/// Parse a u32 (little-endian)
-pub fn u32_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = u32, Error = ParsicombError<'a>>
-{
-    take(4).map(|bytes: &[u8]| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-}
-
-/// Parse a u64 (little-endian)
-pub fn u64_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = u64, Error = ParsicombError<'a>>
-{
-    take(8).map(|bytes: &[u8]| {
-        u64::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ])
-    })
-}
-
-/// Parse an i64 (little-endian)
-pub fn i64_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = i64, Error = ParsicombError<'a>>
-{
-    take(8).map(|bytes: &[u8]| {
-        i64::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ])
-    })
-}
-
-/// Parse an f64 (little-endian)
-pub fn f64_le<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = f64, Error = ParsicombError<'a>>
-{
-    take(8).map(|bytes: &[u8]| {
-        f64::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ])
+/// Parse `N` bytes as a little-endian number, converted with `from`, e.g.
+/// `le(u32::from_le_bytes)`
+pub fn le<'a, const N: usize, T>(
+    from: fn([u8; N]) -> T,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = ParsicombError<'a>> {
+    parser_fn(move |cursor: ByteCursor<'a>| {
+        let (data, pos) = cursor.inner();
+        match data.get(pos..).and_then(<[u8]>::first_chunk::<N>) {
+            Some(chunk) => Ok((from(*chunk), cursor.advance(N))),
+            None => Err(ParsicombError::EndOfInput(cursor.loc())),
+        }
     })
 }
 
@@ -57,53 +21,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_u8() {
-        let data = &[0x42, 0x43];
-        let cursor = ByteCursor::new(data);
-        let (val, cursor) = u8_parser().parse(cursor).unwrap();
-        assert_eq!(val, 0x42);
-        let (val, _) = u8_parser().parse(cursor).unwrap();
-        assert_eq!(val, 0x43);
-    }
-
-    #[test]
     fn test_u16_le() {
         let data = &[0x01, 0x02]; // 0x0201 in LE
-        let cursor = ByteCursor::new(data);
-        let (val, _) = u16_le().parse(cursor).unwrap();
+        let (val, _) = le(u16::from_le_bytes).parse(ByteCursor::new(data)).unwrap();
         assert_eq!(val, 0x0201);
     }
 
     #[test]
     fn test_u32_le() {
         let data = &[0x01, 0x02, 0x03, 0x04];
-        let cursor = ByteCursor::new(data);
-        let (val, _) = u32_le().parse(cursor).unwrap();
+        let (val, _) = le(u32::from_le_bytes).parse(ByteCursor::new(data)).unwrap();
         assert_eq!(val, 0x04030201);
     }
 
     #[test]
     fn test_u64_le() {
         let data = &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let cursor = ByteCursor::new(data);
-        let (val, _) = u64_le().parse(cursor).unwrap();
+        let (val, _) = le(u64::from_le_bytes).parse(ByteCursor::new(data)).unwrap();
         assert_eq!(val, 0x0807060504030201);
     }
 
     #[test]
     fn test_i64_le() {
         let data = (-42i64).to_le_bytes();
-        let cursor = ByteCursor::new(&data);
-        let (val, _) = i64_le().parse(cursor).unwrap();
+        let (val, _) = le(i64::from_le_bytes)
+            .parse(ByteCursor::new(&data))
+            .unwrap();
         assert_eq!(val, -42);
     }
 
     #[test]
     fn test_f64_le() {
         let data = (2.5f64).to_le_bytes();
-        let cursor = ByteCursor::new(&data);
-        let (val, _) = f64_le().parse(cursor).unwrap();
-        assert!((val - 2.5).abs() < 1e-10);
+        let (val, _) = le(f64::from_le_bytes)
+            .parse(ByteCursor::new(&data))
+            .unwrap();
+        assert_eq!(val, 2.5);
     }
 
     #[test]
@@ -113,10 +66,27 @@ mod tests {
         data.extend_from_slice(&123i64.to_le_bytes());
 
         let cursor = ByteCursor::new(&data);
-        let (v1, cursor) = u32_le().parse(cursor).unwrap();
-        let (v2, _) = i64_le().parse(cursor).unwrap();
+        let (v1, cursor) = le(u32::from_le_bytes).parse(cursor).unwrap();
+        let (v2, _) = le(i64::from_le_bytes).parse(cursor).unwrap();
 
         assert_eq!(v1, 42);
         assert_eq!(v2, 123);
+    }
+
+    #[test]
+    fn test_short_input_is_end_of_input() {
+        let data = &[0x01, 0x02, 0x03];
+        let error = le(u32::from_le_bytes)
+            .parse(ByteCursor::new(data))
+            .unwrap_err();
+        assert!(matches!(error, ParsicombError::EndOfInput(_)));
+        assert_eq!(error.position(), 0);
+    }
+
+    #[test]
+    fn test_advances_past_number() {
+        let data = &[0x01, 0x02, 0xFF];
+        let (_, cursor) = le(u16::from_le_bytes).parse(ByteCursor::new(data)).unwrap();
+        assert_eq!(cursor.value().unwrap(), 0xFF);
     }
 }

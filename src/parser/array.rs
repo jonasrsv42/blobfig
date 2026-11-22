@@ -1,8 +1,9 @@
 //! Array parsing
 
-use super::primitives::{u8_parser, u64_le};
+use super::primitives::le;
 use super::take::take;
 use crate::types::{ArrayView, DType};
+use parsicomb::byte::byte;
 use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
 use std::borrow::Cow;
 
@@ -10,7 +11,7 @@ use std::borrow::Cow;
 pub fn parse_array_body<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = ArrayView<'a>, Error = ParsicombError<'a>> {
     parser_fn(|cursor: ByteCursor<'a>| {
-        let (dtype_byte, cursor) = u8_parser().parse(cursor)?;
+        let (dtype_byte, cursor) = byte().parse(cursor)?;
         let dtype = DType::from_u8(dtype_byte).ok_or_else(|| {
             let (data, pos) = cursor.inner();
             ParsicombError::Invalid {
@@ -19,9 +20,9 @@ pub fn parse_array_body<'a>()
             }
         })?;
 
-        let (ndim, cursor) = u8_parser().parse(cursor)?;
-        let (shape, cursor) = ntimes(u64_le(), ndim as usize).parse(cursor)?;
-        let (data_size, cursor) = u64_le().parse(cursor)?;
+        let (ndim, cursor) = byte().parse(cursor)?;
+        let (shape, cursor) = ntimes(le(u64::from_le_bytes), ndim as usize).parse(cursor)?;
+        let (data_size, cursor) = le(u64::from_le_bytes).parse(cursor)?;
         // Data bytes, zero-copy
         let (data, cursor) = take(data_size as usize).parse(cursor)?;
 

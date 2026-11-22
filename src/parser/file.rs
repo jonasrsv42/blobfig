@@ -1,6 +1,6 @@
 //! File blob parsing
 
-use super::primitives::{u16_le, u64_le};
+use super::primitives::le;
 use super::string::length_prefixed_str;
 use super::take::take;
 use crate::types::FileView;
@@ -11,12 +11,12 @@ use parsicomb::{ByteCursor, Parser, ParsicombError, parser_fn};
 pub fn parse_file_body<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = FileView<'a>, Error = ParsicombError<'a>> {
     let mimetype = length_prefixed_str(
-        u16_le().map(|len| len as usize),
+        le(u16::from_le_bytes).map(|len| len as usize),
         "Invalid UTF-8 in mimetype",
     );
     parser_fn(move |cursor: ByteCursor<'a>| {
         let (mimetype, cursor) = mimetype.parse(cursor)?;
-        let (data_size, cursor) = u64_le().parse(cursor)?;
+        let (data_size, cursor) = le(u64::from_le_bytes).parse(cursor)?;
         // Data bytes, zero-copy
         let (data, cursor) = take(data_size as usize).parse(cursor)?;
         Ok((FileView { mimetype, data }, cursor))

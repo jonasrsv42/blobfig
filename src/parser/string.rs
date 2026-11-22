@@ -1,6 +1,6 @@
 //! String parsing helpers
 
-use super::primitives::{u16_le, u32_le};
+use super::primitives::le;
 use super::take::take;
 use parsicomb::MapExt;
 use parsicomb::{ByteCursor, Parser, ParsicombError, parser_fn};
@@ -9,13 +9,19 @@ use std::borrow::Cow;
 /// Parse a u32 length-prefixed UTF-8 string (for values)
 pub fn parse_string<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a str, Error = ParsicombError<'a>> {
-    length_prefixed_str(u32_le().map(|len| len as usize), "Invalid UTF-8 in string")
+    length_prefixed_str(
+        le(u32::from_le_bytes).map(|len| len as usize),
+        "Invalid UTF-8 in string",
+    )
 }
 
 /// Parse a u16 length-prefixed UTF-8 string (for object keys)
 pub fn parse_key<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a str, Error = ParsicombError<'a>> {
-    length_prefixed_str(u16_le().map(|len| len as usize), "Invalid UTF-8 in string")
+    length_prefixed_str(
+        le(u16::from_le_bytes).map(|len| len as usize),
+        "Invalid UTF-8 in string",
+    )
 }
 
 /// Parse a length, then that many bytes as UTF-8; invalid UTF-8 is reported

@@ -3,9 +3,10 @@
 use super::array::parse_array_body;
 use super::entry::parse_entry;
 use super::file::parse_file_body;
-use super::primitives::{f64_le, i64_le, u8_parser, u32_le};
+use super::primitives::le;
 use super::string::parse_string;
 use crate::types::{ValueTag, ValueView};
+use parsicomb::byte::byte;
 use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
 use std::borrow::Cow;
 
@@ -13,7 +14,7 @@ use std::borrow::Cow;
 pub fn parse_value<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = ValueView<'a>, Error = ParsicombError<'a>> {
     parser_fn(|cursor: ByteCursor<'a>| {
-        let (tag_byte, cursor) = u8_parser().parse(cursor)?;
+        let (tag_byte, cursor) = byte().parse(cursor)?;
         let tag = ValueTag::from_u8(tag_byte).ok_or_else(|| {
             let (data, pos) = cursor.inner();
             ParsicombError::Invalid {
@@ -24,15 +25,15 @@ pub fn parse_value<'a>()
 
         match tag {
             ValueTag::Bool => {
-                let (b, cursor) = u8_parser().parse(cursor)?;
+                let (b, cursor) = byte().parse(cursor)?;
                 Ok((ValueView::Bool(b != 0), cursor))
             }
             ValueTag::Int => {
-                let (v, cursor) = i64_le().parse(cursor)?;
+                let (v, cursor) = le(i64::from_le_bytes).parse(cursor)?;
                 Ok((ValueView::Int(v), cursor))
             }
             ValueTag::Float => {
-                let (v, cursor) = f64_le().parse(cursor)?;
+                let (v, cursor) = le(f64::from_le_bytes).parse(cursor)?;
                 Ok((ValueView::Float(v), cursor))
             }
             ValueTag::String => {
@@ -48,12 +49,12 @@ pub fn parse_value<'a>()
                 Ok((ValueView::File(file), cursor))
             }
             ValueTag::Object => {
-                let (n, cursor) = u32_le().parse(cursor)?;
+                let (n, cursor) = le(u32::from_le_bytes).parse(cursor)?;
                 let (entries, cursor) = ntimes(parse_entry(), n as usize).parse(cursor)?;
                 Ok((ValueView::object(entries), cursor))
             }
             ValueTag::List => {
-                let (n, cursor) = u32_le().parse(cursor)?;
+                let (n, cursor) = le(u32::from_le_bytes).parse(cursor)?;
                 let (items, cursor) = ntimes(parse_value(), n as usize).parse(cursor)?;
                 Ok((ValueView::list(items), cursor))
             }

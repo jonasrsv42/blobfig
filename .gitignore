@@ -6,3 +6,4 @@ target/
 # ships the `blobfig-cli` binary, consider committing Cargo.lock for
 # reproducible `install.sh` builds.
 Cargo.lock
+improvement.md
