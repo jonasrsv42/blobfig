@@ -1,15 +1,33 @@
-//! Zero-copy take combinator for binary parsing
+//! Zero-copy byte runs: a fixed count, or a length read from the input
 
-use parsicomb::{ByteCursor, Cursor, Parser, ParsicombError, parser_fn};
+use parsicomb::combinator::{AndThenExt, MapErrExt};
+use parsicomb::{ByteCursor, Cursor, MapExt, Parser, ParsicombError, parser_fn};
 
-/// Take exactly N bytes as a zero-copy slice
+/// Read a length with `length`, then take that many bytes as a zero-copy slice
+pub fn sized<'a, L: Into<u64>>(
+    length: impl Parser<Cursor = ByteCursor<'a>, Output = L, Error = ParsicombError<'a>>,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = ParsicombError<'a>> {
+    length
+        .map(|len| len.into())
+        .and_then(take)
+        .map_err(ParsicombError::from)
+}
+
+/// Take exactly `count` bytes as a zero-copy slice
+///
+/// `count` is a `u64` because lengths in the format are. A count too large for
+/// `usize` (on a 32-bit target) can't fit in the input either, so like any
+/// count past the end it fails as end of input, never truncated.
 pub fn take<'a>(
-    count: usize,
+    count: u64,
 ) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = ParsicombError<'a>> {
     parser_fn(move |cursor: ByteCursor<'a>| {
         let (data, pos) = cursor.inner();
-        match pos.checked_add(count) {
-            Some(end) if end <= data.len() => Ok((&data[pos..end], cursor.advance(count))),
+        let end = usize::try_from(count)
+            .ok()
+            .and_then(|count| pos.checked_add(count));
+        match end {
+            Some(end) if end <= data.len() => Ok((&data[pos..end], cursor.advance(end - pos))),
             _ => Err(ParsicombError::EndOfInput(cursor.loc())),
         }
     })
@@ -18,7 +36,7 @@ pub fn take<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parsicomb::Cursor;
+    use crate::parser::primitives::le;
 
     #[test]
     fn test_take_zero() {
@@ -73,5 +91,16 @@ mod tests {
 
         // Verify slice points into original data
         assert!(std::ptr::eq(slice.as_ptr(), data.as_ptr()));
+    }
+
+    #[test]
+    fn test_sized_too_short_is_end_of_input_after_length() {
+        let mut data = 5u32.to_le_bytes().to_vec();
+        data.extend_from_slice(b"ab");
+        let error = sized(le(u32::from_le_bytes))
+            .parse(ByteCursor::new(&data))
+            .unwrap_err();
+        assert!(matches!(error, ParsicombError::EndOfInput(_)));
+        assert_eq!(error.position(), 4);
     }
 }

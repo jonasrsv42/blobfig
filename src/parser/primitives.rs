@@ -82,11 +82,4 @@ mod tests {
         assert!(matches!(error, ParsicombError::EndOfInput(_)));
         assert_eq!(error.position(), 0);
     }
-
-    #[test]
-    fn test_advances_past_number() {
-        let data = &[0x01, 0x02, 0xFF];
-        let (_, cursor) = le(u16::from_le_bytes).parse(ByteCursor::new(data)).unwrap();
-        assert_eq!(cursor.value().unwrap(), 0xFF);
-    }
 }

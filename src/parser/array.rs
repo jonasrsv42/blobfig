@@ -1,7 +1,7 @@
 //! Array parsing
 
 use super::primitives::le;
-use super::take::take;
+use super::take::sized;
 use crate::types::{ArrayView, DType};
 use parsicomb::byte::byte;
 use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
@@ -22,9 +22,7 @@ pub fn parse_array_body<'a>()
 
         let (ndim, cursor) = byte().parse(cursor)?;
         let (shape, cursor) = ntimes(le(u64::from_le_bytes), ndim as usize).parse(cursor)?;
-        let (data_size, cursor) = le(u64::from_le_bytes).parse(cursor)?;
-        // Data bytes, zero-copy
-        let (data, cursor) = take(data_size as usize).parse(cursor)?;
+        let (data, cursor) = sized(le(u64::from_le_bytes)).parse(cursor)?;
 
         Ok((ArrayView { dtype, shape, data }, cursor))
     })

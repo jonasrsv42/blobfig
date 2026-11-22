@@ -3,7 +3,6 @@
 //! Zero-copy parsing that returns views into the original byte buffer.
 
 mod array;
-mod entry;
 mod file;
 mod primitives;
 mod string;

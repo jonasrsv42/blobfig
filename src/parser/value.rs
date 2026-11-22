@@ -1,12 +1,12 @@
 //! Value parsing
 
 use super::array::parse_array_body;
-use super::entry::parse_entry;
 use super::file::parse_file_body;
 use super::primitives::le;
-use super::string::parse_string;
+use super::string::utf8;
 use crate::types::{ValueTag, ValueView};
 use parsicomb::byte::byte;
+use parsicomb::combinator::AndExt;
 use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
 use std::borrow::Cow;
 
@@ -37,7 +37,7 @@ pub fn parse_value<'a>()
                 Ok((ValueView::Float(v), cursor))
             }
             ValueTag::String => {
-                let (s, cursor) = parse_string().parse(cursor)?;
+                let (s, cursor) = utf8(le(u32::from_le_bytes), "string").parse(cursor)?;
                 Ok((ValueView::String(s), cursor))
             }
             ValueTag::Array => {
@@ -50,7 +50,8 @@ pub fn parse_value<'a>()
             }
             ValueTag::Object => {
                 let (n, cursor) = le(u32::from_le_bytes).parse(cursor)?;
-                let (entries, cursor) = ntimes(parse_entry(), n as usize).parse(cursor)?;
+                let entry = utf8(le(u16::from_le_bytes), "key").and(parse_value());
+                let (entries, cursor) = ntimes(entry, n as usize).parse(cursor)?;
                 Ok((ValueView::object(entries), cursor))
             }
             ValueTag::List => {

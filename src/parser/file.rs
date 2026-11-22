@@ -1,26 +1,20 @@
 //! File blob parsing
 
 use super::primitives::le;
-use super::string::length_prefixed_str;
-use super::take::take;
+use super::string::utf8;
+use super::take::sized;
 use crate::types::FileView;
-use parsicomb::MapExt;
-use parsicomb::{ByteCursor, Parser, ParsicombError, parser_fn};
+use parsicomb::combinator::{AndExt, MapErrExt};
+use parsicomb::{ByteCursor, MapExt, Parser, ParsicombError};
 
-/// Parse a file value (after tag has been consumed)
+/// Parse a file value (after tag has been consumed): a u16-length mimetype,
+/// then u64-length data (zero-copy)
 pub fn parse_file_body<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = FileView<'a>, Error = ParsicombError<'a>> {
-    let mimetype = length_prefixed_str(
-        le(u16::from_le_bytes).map(|len| len as usize),
-        "Invalid UTF-8 in mimetype",
-    );
-    parser_fn(move |cursor: ByteCursor<'a>| {
-        let (mimetype, cursor) = mimetype.parse(cursor)?;
-        let (data_size, cursor) = le(u64::from_le_bytes).parse(cursor)?;
-        // Data bytes, zero-copy
-        let (data, cursor) = take(data_size as usize).parse(cursor)?;
-        Ok((FileView { mimetype, data }, cursor))
-    })
+    utf8(le(u16::from_le_bytes), "mimetype")
+        .and(sized(le(u64::from_le_bytes)))
+        .map(|(mimetype, data)| FileView { mimetype, data })
+        .map_err(ParsicombError::from)
 }
 
 #[cfg(test)]
