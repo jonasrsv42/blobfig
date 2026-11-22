@@ -3,7 +3,7 @@
 use super::Failure;
 use super::or_truncated::OrTruncatedExt;
 use super::primitives::{checked, checked_byte, le};
-use super::take::sized;
+use super::take::aligned;
 use crate::check::check_data_size;
 use crate::error::Reason;
 use crate::types::{ArrayView, DType};
@@ -11,8 +11,8 @@ use parsicomb::combinator::{AndExt, AndThenExt};
 use parsicomb::{ByteCursor, Parser, ntimes};
 
 /// Parse an array value (after tag has been consumed): a dtype byte, a u8
-/// dimension count and that many u64 dimensions, then u64-length data
-/// (zero-copy)
+/// dimension count and that many u64 dimensions, then a u64 length, zero
+/// padding to [`ALIGNMENT`](crate::ALIGNMENT), and the data (zero-copy)
 ///
 /// The data length must be what the dtype and shape need. Either field could
 /// be the wrong one, so a mismatch is reported at the dtype byte, where the
@@ -23,7 +23,7 @@ pub fn parse_array_body<'a>()
         le(u8::from_le_bytes).and_then(|ndim| ntimes(le(u64::from_le_bytes), usize::from(ndim)));
     let array = checked_byte(DType::from_u8, |found| Reason::BadDType { found })
         .and(shape)
-        .and(sized(le(u64::from_le_bytes)))
+        .and(aligned(le(u64::from_le_bytes)))
         .or_truncated();
     checked(array, |((dtype, shape), data)| {
         check_data_size(dtype, &shape, data.len())?;
@@ -34,6 +34,7 @@ pub fn parse_array_body<'a>()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ALIGNMENT;
 
     fn make_array_bytes(dtype: DType, shape: &[u64], data: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -43,6 +44,7 @@ mod tests {
             bytes.extend_from_slice(&dim.to_le_bytes());
         }
         bytes.extend_from_slice(&(data.len() as u64).to_le_bytes());
+        bytes.resize(bytes.len().next_multiple_of(ALIGNMENT), 0);
         bytes.extend_from_slice(data);
         bytes
     }
@@ -80,10 +82,7 @@ mod tests {
         let (arr, _) = parse_array_body().parse(cursor).unwrap();
 
         // Verify data points into original bytes
-        let data_offset = 1 + 1 + 8 + 8; // dtype + ndim + shape + data_len
-        assert!(std::ptr::eq(
-            arr.data.as_ptr(),
-            bytes[data_offset..].as_ptr()
-        ));
+        // ...after the padding, at the first multiple of ALIGNMENT
+        assert!(std::ptr::eq(arr.data.as_ptr(), bytes[ALIGNMENT..].as_ptr()));
     }
 }

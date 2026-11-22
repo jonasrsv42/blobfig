@@ -1,5 +1,6 @@
 //! Array serialization
 
+use super::aligned::AlignedWriter;
 use super::wire_len;
 use crate::check::check_data_size;
 use crate::error::{LengthField, WriteError};
@@ -7,7 +8,10 @@ use crate::types::{Array, ValueTag};
 use std::io::Write;
 
 /// Write an array value; its data must be the size its dtype and shape need
-pub fn write_array<W: Write>(writer: &mut W, arr: &Array) -> Result<(), WriteError> {
+pub fn write_array<W: Write>(
+    writer: &mut AlignedWriter<'_, W>,
+    arr: &Array,
+) -> Result<(), WriteError> {
     check_data_size(arr.dtype, &arr.shape, arr.data.len()).map_err(|error| {
         WriteError::SizeMismatch {
             dtype: error.dtype,
@@ -26,6 +30,7 @@ pub fn write_array<W: Write>(writer: &mut W, arr: &Array) -> Result<(), WriteErr
         writer.write_all(&dim.to_le_bytes())?;
     }
     writer.write_all(&(arr.data.len() as u64).to_le_bytes())?;
+    writer.pad_to_alignment()?;
     writer.write_all(&arr.data)?;
     Ok(())
 }
@@ -41,7 +46,7 @@ mod tests {
     fn more_than_255_dimensions_rejected() {
         // The dimension count is one byte; 256 used to be written as 0
         let arr = Array::new(DType::U8, vec![1; 256], vec![0]);
-        let error = write_array(&mut Vec::new(), &arr).unwrap_err();
+        let error = write_array(&mut AlignedWriter::new(&mut Vec::new()), &arr).unwrap_err();
         let expected = (LengthField::ArrayDimensions, 256);
         assert!(matches!(error, WriteError::TooLarge { field, len } if (field, len) == expected));
     }
@@ -52,7 +57,7 @@ mod tests {
         let arr = Array::new(DType::U8, vec![4], data.clone());
 
         let mut buf = Vec::new();
-        write_array(&mut buf, &arr).unwrap();
+        write_array(&mut AlignedWriter::new(&mut buf), &arr).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();
@@ -70,7 +75,7 @@ mod tests {
         let arr = Array::new(DType::F32, vec![2, 3], data.clone());
 
         let mut buf = Vec::new();
-        write_array(&mut buf, &arr).unwrap();
+        write_array(&mut AlignedWriter::new(&mut buf), &arr).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();
@@ -87,7 +92,7 @@ mod tests {
         let arr = Array::new(DType::U8, vec![2, 3, 4], data.clone());
 
         let mut buf = Vec::new();
-        write_array(&mut buf, &arr).unwrap();
+        write_array(&mut AlignedWriter::new(&mut buf), &arr).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();
@@ -103,7 +108,7 @@ mod tests {
         let arr = Array::new(DType::F64, vec![0], vec![]);
 
         let mut buf = Vec::new();
-        write_array(&mut buf, &arr).unwrap();
+        write_array(&mut AlignedWriter::new(&mut buf), &arr).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();
@@ -117,7 +122,7 @@ mod tests {
     #[test]
     fn data_size_must_match_dtype_and_shape() {
         let arr = Array::new(DType::F32, vec![1000], vec![0; 3]);
-        let error = write_array(&mut Vec::new(), &arr).unwrap_err();
+        let error = write_array(&mut AlignedWriter::new(&mut Vec::new()), &arr).unwrap_err();
         let expected = (Some(4000), 3);
         assert!(
             matches!(error, WriteError::SizeMismatch { needed, actual, .. } if (needed, actual) == expected)
@@ -142,7 +147,7 @@ mod tests {
             let arr = Array::new(dtype, vec![8 / dtype.element_size() as u64], data.clone());
 
             let mut buf = Vec::new();
-            write_array(&mut buf, &arr).unwrap();
+            write_array(&mut AlignedWriter::new(&mut buf), &arr).unwrap();
 
             let cursor = ByteCursor::new(&buf);
             let (parsed, _) = parse_value().parse(cursor).unwrap();

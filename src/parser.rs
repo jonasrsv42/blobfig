@@ -164,7 +164,14 @@ mod tests {
             ),
             (
                 "array data too short",
-                blob(&[&[array, DType::F32 as u8, 1], &u64(1000), &u64(3), &[0; 3]]),
+                // The length field ends at 35: padding to 64, then the data
+                blob(&[
+                    &[array, DType::F32 as u8, 1],
+                    &u64(1000),
+                    &u64(3),
+                    &[0; 29],
+                    &[0; 3],
+                ]),
                 Reason::SizeMismatch {
                     needed: Some(4000),
                     actual: 3,
@@ -179,6 +186,7 @@ mod tests {
                     &u64(u64::MAX),
                     &u64(2),
                     &u64(0),
+                    &[0; 21], // padding from 43 to 64
                 ]),
                 Reason::SizeMismatch {
                     needed: None,
@@ -186,6 +194,20 @@ mod tests {
                 },
                 17,
                 "array data is 0 bytes, but U8 with shape [18446744073709551615, 2] needs more bytes than fit in a u64",
+            ),
+            (
+                "padding not zero",
+                blob(&[
+                    &[array, DType::U8 as u8, 1],
+                    &u64(1),
+                    &u64(1),
+                    &[1],
+                    &[0; 28],
+                    &[7],
+                ]),
+                Reason::BadPadding,
+                35,
+                "padding before array or file data isn't zero",
             ),
             (
                 "invalid UTF-8 in key",

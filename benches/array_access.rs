@@ -55,8 +55,10 @@ fn bench(c: &mut Criterion) {
         let parsed = parse(blob.bytes()).unwrap();
         let weights = parsed.array("weights").unwrap();
         let aligned = weights.try_as_ndarray::<f32>().is_ok();
-        println!("{n} f32: data at offset {}, zero-copy view works: {aligned}",
-            weights.data.as_ptr() as usize - blob.bytes().as_ptr() as usize);
+        println!(
+            "{n} f32: data at offset {}, zero-copy view works: {aligned}",
+            weights.data.as_ptr() as usize - blob.bytes().as_ptr() as usize
+        );
 
         group.throughput(Throughput::Bytes((n * 4) as u64));
 

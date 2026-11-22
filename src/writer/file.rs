@@ -1,12 +1,16 @@
 //! File serialization with streaming support
 
+use super::aligned::AlignedWriter;
 use super::wire_len;
 use crate::error::{LengthField, WriteError};
 use crate::types::{File, FileData, ValueTag};
 use std::io::{self, Read, Write};
 
 /// Write a file value (handles streaming from handle)
-pub fn write_file<W: Write>(writer: &mut W, mut file: File) -> Result<(), WriteError> {
+pub fn write_file<W: Write>(
+    writer: &mut AlignedWriter<'_, W>,
+    mut file: File,
+) -> Result<(), WriteError> {
     writer.write_all(&[ValueTag::File as u8])?;
 
     let mimetype_bytes = file.mimetype.as_bytes();
@@ -16,6 +20,7 @@ pub fn write_file<W: Write>(writer: &mut W, mut file: File) -> Result<(), WriteE
 
     let size = file.size();
     writer.write_all(&size.to_le_bytes())?;
+    writer.pad_to_alignment()?;
 
     match &mut file.data {
         FileData::Bytes(bytes) => {
@@ -77,7 +82,7 @@ mod tests {
     fn mimetype_longer_than_u16_rejected() {
         // The mimetype length is a u16; 65536 used to be written as 0
         let file = File::from_bytes("x".repeat(65536), Vec::new());
-        let error = write_file(&mut Vec::new(), file).unwrap_err();
+        let error = write_file(&mut AlignedWriter::new(&mut Vec::new()), file).unwrap_err();
         let expected = (LengthField::Mimetype, 65536);
         assert!(matches!(error, WriteError::TooLarge { field, len } if (field, len) == expected));
     }
@@ -88,7 +93,7 @@ mod tests {
         let file = File::from_bytes("text/plain", content.to_vec());
 
         let mut buf = Vec::new();
-        write_file(&mut buf, file).unwrap();
+        write_file(&mut AlignedWriter::new(&mut buf), file).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();
@@ -103,7 +108,7 @@ mod tests {
         let file = File::from_bytes("application/octet-stream", vec![]);
 
         let mut buf = Vec::new();
-        write_file(&mut buf, file).unwrap();
+        write_file(&mut AlignedWriter::new(&mut buf), file).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();
@@ -119,7 +124,7 @@ mod tests {
         let file = File::from_bytes("application/x-tflite", content.clone());
 
         let mut buf = Vec::new();
-        write_file(&mut buf, file).unwrap();
+        write_file(&mut AlignedWriter::new(&mut buf), file).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();

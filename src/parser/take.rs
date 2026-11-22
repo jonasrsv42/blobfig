@@ -1,8 +1,12 @@
-//! Zero-copy byte runs: a fixed count, or a length read from the input
+//! Zero-copy byte runs: a fixed count, a length read from the input, or one
+//! read from the input and aligned
 
 use super::Failure;
 use super::or_truncated::OrTruncatedExt;
-use parsicomb::combinator::AndThenExt;
+use super::primitives::checked;
+use crate::error::Reason;
+use crate::types::padding_at;
+use parsicomb::combinator::{AndThenExt, TerminatedExt};
 use parsicomb::{ByteCursor, Cursor, MapExt, Parser, ParsicombError, parser_fn};
 
 /// Read a length with `length`, then take that many bytes as a zero-copy slice
@@ -10,6 +14,34 @@ pub fn sized<'a, L: Into<u64>>(
     length: impl Parser<Cursor = ByteCursor<'a>, Output = L, Error = Failure<'a>>,
 ) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = Failure<'a>> {
     length.map(|len| len.into()).and_then(take).or_truncated()
+}
+
+/// Read a length with `length`, skip the zero padding up to the next multiple
+/// of [`ALIGNMENT`](crate::ALIGNMENT) from the start of the input, then take
+/// that many bytes as a zero-copy slice: how array and file data are stored
+pub fn aligned<'a, L: Into<u64>>(
+    length: impl Parser<Cursor = ByteCursor<'a>, Output = L, Error = Failure<'a>>,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = Failure<'a>> {
+    length
+        .map(|len| len.into())
+        .terminated_by(zero_padding())
+        .and_then(take)
+        .or_truncated()
+}
+
+/// The padding before aligned data, which must be all zero
+fn zero_padding<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error = Failure<'a>> {
+    parser_fn(|cursor: ByteCursor<'a>| {
+        let padding = padding_at(cursor.position() as u64);
+        checked(take(padding), |bytes| {
+            if bytes.iter().all(|&byte| byte == 0) {
+                Ok(())
+            } else {
+                Err(Reason::BadPadding.into())
+            }
+        })
+        .parse(cursor)
+    })
 }
 
 /// Take exactly `count` bytes as a zero-copy slice

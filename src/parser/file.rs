@@ -4,17 +4,18 @@ use super::Failure;
 use super::or_truncated::OrTruncatedExt;
 use super::primitives::le;
 use super::string::utf8;
-use super::take::sized;
+use super::take::aligned;
 use crate::types::FileView;
 use parsicomb::combinator::AndExt;
 use parsicomb::{ByteCursor, MapExt, Parser};
 
 /// Parse a file value (after tag has been consumed): a u16-length mimetype,
-/// then u64-length data (zero-copy)
+/// then a u64 length, zero padding to [`ALIGNMENT`](crate::ALIGNMENT), and the
+/// data (zero-copy)
 pub fn parse_file_body<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = FileView<'a>, Error = Failure<'a>> {
     utf8(le(u16::from_le_bytes), "mimetype")
-        .and(sized(le(u64::from_le_bytes)))
+        .and(aligned(le(u64::from_le_bytes)))
         .map(|(mimetype, data)| FileView { mimetype, data })
         .or_truncated()
 }
@@ -22,12 +23,14 @@ pub fn parse_file_body<'a>()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ALIGNMENT;
 
     fn make_file_bytes(mimetype: &str, data: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(mimetype.len() as u16).to_le_bytes());
         bytes.extend_from_slice(mimetype.as_bytes());
         bytes.extend_from_slice(&(data.len() as u64).to_le_bytes());
+        bytes.resize(bytes.len().next_multiple_of(ALIGNMENT), 0);
         bytes.extend_from_slice(data);
         bytes
     }
@@ -62,11 +65,10 @@ mod tests {
         let (file, _) = parse_file_body().parse(cursor).unwrap();
 
         // Verify data points into original bytes
-        let mimetype = "text/plain";
-        let data_offset = 2 + mimetype.len() + 8; // mimetype_len + mimetype + data_len
+        // ...after the padding, at the first multiple of ALIGNMENT
         assert!(std::ptr::eq(
             file.data.as_ptr(),
-            bytes[data_offset..].as_ptr()
+            bytes[ALIGNMENT..].as_ptr()
         ));
     }
 

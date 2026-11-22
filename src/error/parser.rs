@@ -35,6 +35,9 @@ pub enum Reason {
     BadBool { found: u8 },
     /// A string, key or mimetype isn't valid UTF-8
     InvalidUtf8,
+    /// The padding that aligns an array's or file's data isn't all zero, e.g.
+    /// corrupt data
+    BadPadding,
     /// An array's data length disagrees with its element type and shape
     /// (`needed` is `None` when multiplying out the shape overflows a `u64`
     /// before reaching a zero dimension)
@@ -65,6 +68,7 @@ impl fmt::Display for Reason {
             Reason::BadDType { found } => write!(f, "invalid dtype: 0x{found:02X}"),
             Reason::BadBool { found } => write!(f, "invalid bool: 0x{found:02X}"),
             Reason::InvalidUtf8 => write!(f, "invalid UTF-8"),
+            Reason::BadPadding => write!(f, "padding before array or file data isn't zero"),
             Reason::SizeMismatch { needed, actual } => {
                 write!(
                     f,

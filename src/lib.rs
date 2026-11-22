@@ -51,7 +51,7 @@ pub use check::MAX_DEPTH;
 pub use error::{AccessError, LengthField, ParseError, Reason, WriteError};
 pub use parser::parse;
 pub use types::{
-    Array, ArrayNode, ArrayView, DType, File, FileData, FileHandle, FileNode, FileView,
+    ALIGNMENT, Array, ArrayNode, ArrayView, DType, File, FileData, FileHandle, FileNode, FileView,
     HEADER_SIZE, List, ListNode, ListView, MAGIC, NodeView, Object, ObjectNode, ObjectView,
     VERSION, Value, ValueTag, ValueView,
 };

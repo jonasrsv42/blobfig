@@ -9,7 +9,7 @@
 //!
 //! Run with: `cargo bench --bench parse_failure`
 
-use blobfig::{HEADER_SIZE, MAGIC, VERSION, parse};
+use blobfig::{ALIGNMENT, HEADER_SIZE, MAGIC, VERSION, parse};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 
@@ -25,12 +25,14 @@ fn header() -> Vec<u8> {
     h
 }
 
-/// Encode a File value body: [u16 mimetype_len][mimetype][u64 data_size][data]
+/// Encode a File value body: [u16 mimetype_len][mimetype][u64 data_size]
+/// [zero padding to ALIGNMENT][data]
 fn push_file(buf: &mut Vec<u8>, mimetype: &str, data: &[u8]) {
     buf.push(TAG_FILE);
     buf.extend_from_slice(&(mimetype.len() as u16).to_le_bytes());
     buf.extend_from_slice(mimetype.as_bytes());
     buf.extend_from_slice(&(data.len() as u64).to_le_bytes());
+    buf.resize(buf.len().next_multiple_of(ALIGNMENT), 0); // data is aligned
     buf.extend_from_slice(data);
 }
 

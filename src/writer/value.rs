@@ -1,5 +1,6 @@
 //! Value serialization
 
+use super::aligned::AlignedWriter;
 use crate::check::{MAX_DEPTH, check_keys};
 use crate::error::{LengthField, WriteError};
 use crate::types::{ObjectNode, Value, ValueTag};
@@ -10,13 +11,20 @@ use super::file::write_file;
 use super::wire_len;
 
 /// Write a value (consumes it to handle file handles)
-pub fn write_value<W: Write>(writer: &mut W, value: Value) -> Result<(), WriteError> {
+pub fn write_value<W: Write>(
+    writer: &mut AlignedWriter<'_, W>,
+    value: Value,
+) -> Result<(), WriteError> {
     write_nested(writer, value, 1)
 }
 
 /// Write a value that is `depth` values deep, counting itself; deeper than
 /// [`MAX_DEPTH`] is refused, as the parser would refuse to read it
-fn write_nested<W: Write>(writer: &mut W, value: Value, depth: usize) -> Result<(), WriteError> {
+fn write_nested<W: Write>(
+    writer: &mut AlignedWriter<'_, W>,
+    value: Value,
+    depth: usize,
+) -> Result<(), WriteError> {
     if depth > MAX_DEPTH {
         return Err(WriteError::TooDeep);
     }
