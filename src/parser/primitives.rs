@@ -1,6 +1,24 @@
-//! Little-endian fixed-width numbers
+//! Fixed-width fields: little-endian numbers and checked bytes
 
+use parsicomb::byte::byte;
 use parsicomb::{ByteCursor, Cursor, Parser, ParsicombError, parser_fn};
+use std::borrow::Cow;
+
+/// Read one byte and convert it with `convert`; a byte it refuses (`None`) is
+/// reported at that byte as "invalid `what`: 0x..", e.g.
+/// `checked_byte(DType::from_u8, "dtype")`
+pub fn checked_byte<'a, T>(
+    convert: fn(u8) -> Option<T>,
+    what: &'static str,
+) -> impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = ParsicombError<'a>> {
+    parser_fn(move |cursor: ByteCursor<'a>| {
+        let (b, next) = byte().parse(cursor)?;
+        match convert(b) {
+            Some(value) => Ok((value, next)),
+            None => Err(cursor.invalid_error(Cow::Owned(format!("invalid {what}: 0x{b:02X}")))),
+        }
+    })
+}
 
 /// Parse `N` bytes as a little-endian number, converted with `from`, e.g.
 /// `le(u32::from_le_bytes)`

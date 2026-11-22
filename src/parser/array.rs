@@ -1,31 +1,23 @@
 //! Array parsing
 
-use super::primitives::le;
+use super::primitives::{checked_byte, le};
 use super::take::sized;
 use crate::types::{ArrayView, DType};
 use parsicomb::byte::byte;
-use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
-use std::borrow::Cow;
+use parsicomb::combinator::{AndExt, AndThenExt, MapErrExt};
+use parsicomb::{ByteCursor, MapExt, Parser, ParsicombError, ntimes};
 
-/// Parse an array value (after tag has been consumed)
+/// Parse an array value (after tag has been consumed): a dtype byte, a u8
+/// dimension count and that many u64 dimensions, then u64-length data
+/// (zero-copy)
 pub fn parse_array_body<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = ArrayView<'a>, Error = ParsicombError<'a>> {
-    parser_fn(|cursor: ByteCursor<'a>| {
-        let (dtype_byte, cursor) = byte().parse(cursor)?;
-        let dtype = DType::from_u8(dtype_byte).ok_or_else(|| {
-            let (data, pos) = cursor.inner();
-            ParsicombError::Invalid {
-                message: Cow::Owned(format!("Invalid dtype: 0x{:02X}", dtype_byte)),
-                loc: CodeLoc::new(data, pos.saturating_sub(1)),
-            }
-        })?;
-
-        let (ndim, cursor) = byte().parse(cursor)?;
-        let (shape, cursor) = ntimes(le(u64::from_le_bytes), ndim as usize).parse(cursor)?;
-        let (data, cursor) = sized(le(u64::from_le_bytes)).parse(cursor)?;
-
-        Ok((ArrayView { dtype, shape, data }, cursor))
-    })
+    let shape = byte().and_then(|ndim| ntimes(le(u64::from_le_bytes), usize::from(ndim)));
+    checked_byte(DType::from_u8, "dtype")
+        .and(shape)
+        .and(sized(le(u64::from_le_bytes)))
+        .map(|((dtype, shape), data)| ArrayView { dtype, shape, data })
+        .map_err(ParsicombError::from)
 }
 
 #[cfg(test)]
@@ -91,8 +83,10 @@ mod tests {
         bytes.extend_from_slice(&1u64.to_le_bytes()); // shape
         bytes.extend_from_slice(&0u64.to_le_bytes()); // data_len
 
-        let cursor = ByteCursor::new(&bytes);
-        let result = parse_array_body().parse(cursor);
-        assert!(result.is_err());
+        let error = parse_array_body()
+            .parse(ByteCursor::new(&bytes))
+            .unwrap_err();
+        assert_eq!(error.position(), 0);
+        assert!(error.to_string().contains("invalid dtype: 0xFF"));
     }
 }

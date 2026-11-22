@@ -2,26 +2,18 @@
 
 use super::array::parse_array_body;
 use super::file::parse_file_body;
-use super::primitives::le;
+use super::primitives::{checked_byte, le};
 use super::string::utf8;
 use crate::types::{ValueTag, ValueView};
 use parsicomb::byte::byte;
 use parsicomb::combinator::AndExt;
-use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
-use std::borrow::Cow;
+use parsicomb::{ByteCursor, Parser, ParsicombError, ntimes, parser_fn};
 
 /// Parse a value, dispatching on its tag byte
 pub fn parse_value<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = ValueView<'a>, Error = ParsicombError<'a>> {
     parser_fn(|cursor: ByteCursor<'a>| {
-        let (tag_byte, cursor) = byte().parse(cursor)?;
-        let tag = ValueTag::from_u8(tag_byte).ok_or_else(|| {
-            let (data, pos) = cursor.inner();
-            ParsicombError::Invalid {
-                message: Cow::Owned(format!("Invalid value tag: 0x{:02X}", tag_byte)),
-                loc: CodeLoc::new(data, pos.saturating_sub(1)),
-            }
-        })?;
+        let (tag, cursor) = checked_byte(ValueTag::from_u8, "value tag").parse(cursor)?;
 
         match tag {
             ValueTag::Bool => {
@@ -209,9 +201,13 @@ mod tests {
 
     #[test]
     fn test_invalid_tag() {
-        let bytes = &[0xFF]; // Invalid tag
-        let cursor = ByteCursor::new(bytes);
-        let result = parse_value().parse(cursor);
-        assert!(result.is_err());
+        // A one-item list whose item has an invalid tag at offset 5
+        let mut bytes = vec![ValueTag::List as u8];
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.push(0xFF);
+
+        let error = parse_value().parse(ByteCursor::new(&bytes)).unwrap_err();
+        assert_eq!(error.position(), 5);
+        assert!(error.to_string().contains("invalid value tag: 0xFF"));
     }
 }
