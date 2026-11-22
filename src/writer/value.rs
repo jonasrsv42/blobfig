@@ -1,6 +1,6 @@
 //! Value serialization
 
-use crate::check::check_keys;
+use crate::check::{MAX_DEPTH, check_keys};
 use crate::types::{ObjectNode, Value, ValueTag};
 use std::io::{self, Write};
 
@@ -10,6 +10,18 @@ use super::wire_len;
 
 /// Write a value (consumes it to handle file handles)
 pub fn write_value<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
+    write_nested(writer, value, 1)
+}
+
+/// Write a value that is `depth` values deep, counting itself; deeper than
+/// [`MAX_DEPTH`] is refused, as the parser would refuse to read it
+fn write_nested<W: Write>(writer: &mut W, value: Value, depth: usize) -> io::Result<()> {
+    if depth > MAX_DEPTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("values nested more than {MAX_DEPTH} deep"),
+        ));
+    }
     match value {
         Value::Bool(b) => {
             writer.write_all(&[ValueTag::Bool as u8])?;
@@ -44,21 +56,21 @@ pub fn write_value<W: Write>(writer: &mut W, value: Value) -> io::Result<()> {
                 let key_bytes = key.as_bytes();
                 writer.write_all(&wire_len::<u16>(key_bytes.len(), "key")?.to_le_bytes())?;
                 writer.write_all(key_bytes)?;
-                write_value(writer, val)?;
+                write_nested(writer, val, depth + 1)?;
             }
         }
         Value::List(items) => {
             writer.write_all(&[ValueTag::List as u8])?;
             writer.write_all(&wire_len::<u32>(items.len(), "list")?.to_le_bytes())?;
             for item in items {
-                write_value(writer, item)?;
+                write_nested(writer, item, depth + 1)?;
             }
         }
         Value::Secret(inner) => {
             // Secret is a transparent wrapper on the wire: tag + inner value.
             // The secrecy marker travels with the data so it survives a roundtrip.
             writer.write_all(&[ValueTag::Secret as u8])?;
-            write_value(writer, *inner)?;
+            write_nested(writer, *inner, depth + 1)?;
         }
     }
     Ok(())

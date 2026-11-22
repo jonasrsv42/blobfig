@@ -11,7 +11,6 @@ mod string;
 mod take;
 mod value;
 
-pub use value::MAX_DEPTH;
 pub(crate) use value::parse_value;
 
 use crate::error::{ParseError, Reason};
@@ -79,7 +78,7 @@ fn header<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error = Fai
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::value::MAX_DEPTH;
+    use crate::check::MAX_DEPTH;
     use crate::types::{DType, NodeView, ObjectNode, Value, ValueTag};
     use crate::writer;
 

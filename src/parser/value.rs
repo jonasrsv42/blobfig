@@ -7,23 +7,13 @@ use super::or_truncated::OrTruncatedExt;
 use super::primitives::{checked_byte, le};
 use super::rejection::Rejection;
 use super::string::utf8;
-use crate::check::check_keys;
+use crate::check::{MAX_DEPTH, check_keys};
 use crate::error::Reason;
 use crate::types::{ValueTag, ValueView};
 use parsicomb::combinator::{
     AndExt, AndThenExt, MapErrExt, MapExt, MaxDepthError, MaxDepthExt, ReasonError,
 };
 use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
-
-/// How many values deep the input may nest, counting the innermost value:
-/// deeper input fails with [`Reason::TooDeep`] instead of overflowing the
-/// stack.
-///
-/// Measured in a release build on x86-64, one nested object or list takes
-/// about 1.8 KB of stack, so 12 levels take about 22 KB, leaving room on a
-/// 32 KiB task such as an ESP32's main task. The depth counter is per thread,
-/// shared with any other parsicomb `max_depth` grammar running on it.
-pub const MAX_DEPTH: usize = 12;
 
 /// Parse a value, dispatching on its tag byte
 pub fn parse_value<'a>()

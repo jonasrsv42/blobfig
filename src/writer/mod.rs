@@ -145,6 +145,18 @@ mod tests {
     }
 
     #[test]
+    fn test_writes_only_what_the_parser_can_read_deep() {
+        // `depth` values deep: lists around a bool
+        let nested = |depth: usize| (1..depth).fold(Value::Bool(true), |v, _| Value::list(vec![v]));
+
+        let bytes = to_bytes(nested(crate::MAX_DEPTH)).unwrap();
+        assert!(crate::parse(&bytes).is_ok());
+
+        let error = to_bytes(nested(crate::MAX_DEPTH + 1)).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
     fn test_duplicate_key_rejected() {
         let value = Value::object(vec![
             ("a".into(), Value::Int(1)),

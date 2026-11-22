@@ -47,8 +47,9 @@ pub mod ndarray_ext;
 pub mod areamy_ext;
 
 // Re-export common types at crate root
+pub use check::MAX_DEPTH;
 pub use error::{AccessError, ParseError, Reason};
-pub use parser::{MAX_DEPTH, parse};
+pub use parser::parse;
 pub use types::{
     Array, ArrayNode, ArrayView, DType, File, FileData, FileHandle, FileNode, FileView,
     HEADER_SIZE, List, ListNode, ListView, MAGIC, NodeView, Object, ObjectNode, ObjectView,
