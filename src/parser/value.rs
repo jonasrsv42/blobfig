@@ -7,7 +7,7 @@ use super::or_truncated::OrTruncatedExt;
 use super::primitives::{checked_byte, le};
 use super::rejection::Rejection;
 use super::string::utf8;
-use crate::check::{KeyProblem, MAX_DEPTH, check_keys};
+use crate::check::{KeyError, KeyProblem, MAX_DEPTH, check_keys};
 use crate::error::Reason;
 use crate::types::{ValueTag, ValueView};
 use parsicomb::combinator::{
@@ -23,15 +23,7 @@ pub fn parse_value<'a>()
         let (tag, cursor) = tag.parse(cursor)?;
 
         match tag {
-            ValueTag::Bool => {
-                let zero_or_one = |b| match b {
-                    0 => Some(false),
-                    1 => Some(true),
-                    _ => None,
-                };
-                let bool = checked_byte(zero_or_one, |found| Reason::BadBool { found });
-                bool.map(ValueView::Bool).parse(cursor)
-            }
+            ValueTag::Bool => parse_bool().map(ValueView::Bool).parse(cursor),
             ValueTag::Int => le(i64::from_le_bytes).map(ValueView::Int).parse(cursor),
             ValueTag::Float => le(f64::from_le_bytes).map(ValueView::Float).parse(cursor),
             ValueTag::String => utf8(le(u32::from_le_bytes), "string")
@@ -39,28 +31,7 @@ pub fn parse_value<'a>()
                 .parse(cursor),
             ValueTag::Array => parse_array_body().map(ValueView::Array).parse(cursor),
             ValueTag::File => parse_file_body().map(ValueView::File).parse(cursor),
-            ValueTag::Object => {
-                let entry = || utf8(le(u16::from_le_bytes), "key").and(parse_value());
-                let (entries, end) = le(u32::from_le_bytes)
-                    .and_then(|n| ntimes(entry(), n as usize))
-                    .or_truncated()
-                    .parse(cursor)?;
-                check_keys(entries.iter().map(|(key, _)| *key)).map_err(|error| {
-                    // Keys are slices of the input, so their offsets are where
-                    // they start in it
-                    let (input, _) = cursor.inner();
-                    let offset = |key: &str| key.as_ptr() as usize - input.as_ptr() as usize;
-                    let reason = match error.problem {
-                        KeyProblem::ContainsSlash => Reason::KeyContainsSlash,
-                        KeyProblem::Duplicate { first } => Reason::DuplicateKey {
-                            first: offset(entries[first].0),
-                        },
-                    };
-                    let rejection = Rejection::new(reason, error.to_string());
-                    rejection.at(CodeLoc::new(input, offset(error.key)))
-                })?;
-                Ok((ValueView::object(entries), end))
-            }
+            ValueTag::Object => parse_object_body(cursor),
             ValueTag::List => le(u32::from_le_bytes)
                 .and_then(|n| ntimes(parse_value(), n as usize))
                 .map(ValueView::list)
@@ -81,6 +52,52 @@ pub fn parse_value<'a>()
             ParsicombError::from(limit),
         )),
     })
+}
+
+/// A bool's byte, which must be 0 or 1
+fn parse_bool<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = bool, Error = Failure<'a>> {
+    let zero_or_one = |b| match b {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    };
+    checked_byte(zero_or_one, |found| Reason::BadBool { found })
+}
+
+/// An object's entries, which are refused if their keys break the key rules
+//
+// Inlined into `parse_value` because it recurses through it: as a separate
+// frame it costs about 0.9 KB more stack per nested object (release, x86-64)
+#[inline(always)]
+fn parse_object_body<'a>(
+    cursor: ByteCursor<'a>,
+) -> Result<(ValueView<'a>, ByteCursor<'a>), Failure<'a>> {
+    let entry = || utf8(le(u16::from_le_bytes), "key").and(parse_value());
+    let (entries, end) = le(u32::from_le_bytes)
+        .and_then(|n| ntimes(entry(), n as usize))
+        .or_truncated()
+        .parse(cursor)?;
+    let (input, _) = cursor.inner();
+    check_keys(entries.iter().map(|(key, _)| *key))
+        .map_err(|error| key_failure(input, &entries, error))?;
+    Ok((ValueView::object(entries), end))
+}
+
+/// The failure for a key that `check_keys` refused, pointing at the key
+fn key_failure<'a>(
+    input: &'a [u8],
+    entries: &[(&'a str, ValueView<'a>)],
+    error: KeyError<'_>,
+) -> Failure<'a> {
+    // Keys are slices of the input, so their offsets are where they start in it
+    let offset = |key: &str| key.as_ptr() as usize - input.as_ptr() as usize;
+    let reason = match error.problem {
+        KeyProblem::ContainsSlash => Reason::KeyContainsSlash,
+        KeyProblem::Duplicate { first } => Reason::DuplicateKey {
+            first: offset(entries[first].0),
+        },
+    };
+    Rejection::new(reason, error.to_string()).at(CodeLoc::new(input, offset(error.key)))
 }
 
 #[cfg(test)]
