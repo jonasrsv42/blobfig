@@ -1,6 +1,6 @@
 //! Array data size, shared by the parser and the writer
 
-use crate::error::Reason;
+use crate::error::ParseErrorReason;
 use crate::types::DType;
 use std::fmt;
 
@@ -15,8 +15,8 @@ pub(crate) struct DataSizeError<'s> {
 }
 
 impl DataSizeError<'_> {
-    pub fn reason(&self) -> Reason {
-        Reason::SizeMismatch {
+    pub fn reason(&self) -> ParseErrorReason {
+        ParseErrorReason::SizeMismatch {
             needed: self.needed,
             actual: self.actual,
         }

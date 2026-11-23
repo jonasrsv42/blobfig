@@ -6,5 +6,5 @@ mod parser;
 mod writer;
 
 pub use access::AccessError;
-pub use parser::{ParseError, Reason, ReasonClass};
-pub use writer::{LengthField, WriteError};
+pub use parser::{ParseError, ParseErrorReason, ReasonClass};
+pub use writer::{LengthField, WriteError, WriteErrorReason};

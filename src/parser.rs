@@ -13,16 +13,16 @@ mod value;
 
 pub(crate) use value::parse_value;
 
-use crate::error::{ParseError, Reason};
+use crate::error::{ParseError, ParseErrorReason};
 use crate::types::{MAGIC, VERSION, ValueView};
 use or_truncated::OrTruncatedExt;
 use parsicomb::combinator::{AndExt, MapErrExt, PrecededExt, ReasonExt, TerminatedExt};
 use parsicomb::{ByteCursor, ErrorNode, MapExt, Parser, ParsicombError, eof, is_sequence};
 use primitives::{checked, le};
 
-/// The error of the parsers inside: a parsicomb failure with a [`Reason`],
-/// turned into a [`ParseError`] once, by [`parse`]
-pub(crate) type Failure<'a> = parsicomb::Failure<'a, Reason>;
+/// The error of the parsers inside: a parsicomb failure with a
+/// [`ParseErrorReason`], turned into a [`ParseError`] once, by [`parse`]
+pub(crate) type Failure<'a> = parsicomb::Failure<'a, ParseErrorReason>;
 
 /// Parse a blobfig from bytes: the header, one value, and nothing after it
 ///
@@ -30,7 +30,9 @@ pub(crate) type Failure<'a> = parsicomb::Failure<'a, Reason>;
 /// For zero-copy parsing from memory-mapped files, the bytes
 /// must remain valid for the lifetime of the returned ValueView.
 pub fn parse(bytes: &[u8]) -> Result<ValueView<'_>, ParseError> {
-    let end = eof().reason(Reason::TrailingBytes).map_err(Failure::from);
+    let end = eof()
+        .reason(ParseErrorReason::TrailingBytes)
+        .map_err(Failure::from);
     let file = parse_value()
         .preceded_by(header())
         .terminated_by(end)
@@ -62,17 +64,17 @@ fn to_parse_error(failure: Failure<'_>) -> ParseError {
 /// and u32 flags, which must be 0 until a flag is defined
 fn header<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error = Failure<'a>> {
     let magic = is_sequence(&MAGIC[..])
-        .reason(Reason::BadMagic)
+        .reason(ParseErrorReason::BadMagic)
         .map_err(Failure::from);
     let version = checked(le(u32::from_le_bytes), |found| match found {
         VERSION => Ok(()),
-        _ => Err(Reason::UnsupportedVersion { found }.into()),
+        _ => Err(ParseErrorReason::UnsupportedVersion { found }.into()),
     });
     // A blob from a newer writer may set a flag that changes its layout, so
     // refusing it is safer than misreading it
     let flags = checked(le(u32::from_le_bytes), |found| match found {
         0 => Ok(()),
-        _ => Err(Reason::UnsupportedFlags { found }.into()),
+        _ => Err(ParseErrorReason::UnsupportedFlags { found }.into()),
     });
     magic.and(version).and(flags).map(|_| ()).or_truncated()
 }
@@ -107,67 +109,67 @@ mod tests {
         let u32 = |n: u32| n.to_le_bytes();
         let u64 = |n: u64| n.to_le_bytes();
 
-        let cases: Vec<(&str, Vec<u8>, Reason, usize, &str)> = vec![
+        let cases: Vec<(&str, Vec<u8>, ParseErrorReason, usize, &str)> = vec![
             (
                 "shorter than magic",
                 b"BLOB".to_vec(),
-                Reason::BadMagic,
+                ParseErrorReason::BadMagic,
                 4,
                 "not a blobfig file (bad magic bytes)",
             ),
             (
                 "wrong magic",
                 [b"BLOBFIX\0".as_slice(), &header(VERSION)[8..], &[bool, 1]].concat(),
-                Reason::BadMagic,
+                ParseErrorReason::BadMagic,
                 6,
                 "not a blobfig file (bad magic bytes)",
             ),
             (
                 "newer version",
                 [header(99), vec![bool, 1]].concat(),
-                Reason::UnsupportedVersion { found: 99 },
+                ParseErrorReason::UnsupportedVersion { found: 99 },
                 8,
                 "unsupported version 99, expected 1",
             ),
             (
                 "unknown flags",
                 [&header(VERSION)[..12], &u32(1), &[bool, 1]].concat(),
-                Reason::UnsupportedFlags { found: 1 },
+                ParseErrorReason::UnsupportedFlags { found: 1 },
                 12,
                 "unsupported header flags: 0x00000001",
             ),
             (
                 "no value",
                 blob(&[]),
-                Reason::Truncated,
+                ParseErrorReason::Truncated,
                 16,
                 "unexpected end of input",
             ),
             (
                 "length past the end",
                 blob(&[&[string], &u32(u32::MAX)]),
-                Reason::Truncated,
+                ParseErrorReason::Truncated,
                 21,
                 "unexpected end of input",
             ),
             (
                 "unknown tag",
                 blob(&[&[0xFF]]),
-                Reason::BadTag { found: 0xFF },
+                ParseErrorReason::BadTag { found: 0xFF },
                 16,
                 "invalid value tag: 0xFF",
             ),
             (
                 "bool not 0 or 1",
                 blob(&[&[bool, 2]]),
-                Reason::BadBool { found: 2 },
+                ParseErrorReason::BadBool { found: 2 },
                 17,
                 "invalid bool: 0x02",
             ),
             (
                 "unknown dtype",
                 blob(&[&[array, 0xEE]]),
-                Reason::BadDType { found: 0xEE },
+                ParseErrorReason::BadDType { found: 0xEE },
                 17,
                 "invalid dtype: 0xEE",
             ),
@@ -181,7 +183,7 @@ mod tests {
                     &[0; 29],
                     &[0; 3],
                 ]),
-                Reason::SizeMismatch {
+                ParseErrorReason::SizeMismatch {
                     needed: Some(4000),
                     actual: 3,
                 },
@@ -197,7 +199,7 @@ mod tests {
                     &u64(0),
                     &[0; 21], // padding from 43 to 64
                 ]),
-                Reason::SizeMismatch {
+                ParseErrorReason::SizeMismatch {
                     needed: None,
                     actual: 0,
                 },
@@ -214,21 +216,21 @@ mod tests {
                     &[0; 28],
                     &[7],
                 ]),
-                Reason::BadPadding,
+                ParseErrorReason::BadPadding,
                 35,
                 "padding before array or file data isn't zero",
             ),
             (
                 "invalid UTF-8 in key",
                 blob(&[&[object], &u32(1), &u16(2), b"a\xFF", &[bool, 1]]),
-                Reason::InvalidUtf8,
+                ParseErrorReason::InvalidUtf8,
                 24,
                 "invalid UTF-8 in key",
             ),
             (
                 "key with slash",
                 blob(&[&[object], &u32(1), &u16(3), b"a/b", &[bool, 1]]),
-                Reason::KeyContainsSlash,
+                ParseErrorReason::KeyContainsSlash,
                 23,
                 r#"key contains '/': "a/b""#,
             ),
@@ -244,28 +246,28 @@ mod tests {
                     b"a",
                     &[bool, 1],
                 ]),
-                Reason::DuplicateKey { first: 23 },
+                ParseErrorReason::DuplicateKey { first: 23 },
                 28,
                 r#"duplicate key: "a" (entries 0 and 1)"#,
             ),
             (
                 "nested too deep",
                 blob(&[&[secret; MAX_DEPTH], &[bool, 1]]),
-                Reason::TooDeep,
+                ParseErrorReason::TooDeep,
                 16 + MAX_DEPTH,
                 "maximum nesting depth exceeded",
             ),
             (
                 "too deep inside a list",
                 blob(&[&[list], &u32(1), &[secret; MAX_DEPTH - 1], &[bool, 1]]),
-                Reason::TooDeep,
+                ParseErrorReason::TooDeep,
                 21 + MAX_DEPTH - 1,
                 "maximum nesting depth exceeded",
             ),
             (
                 "trailing bytes",
                 blob(&[&[bool, 1, 0]]),
-                Reason::TrailingBytes,
+                ParseErrorReason::TrailingBytes,
                 18,
                 "bytes left over after the value",
             ),

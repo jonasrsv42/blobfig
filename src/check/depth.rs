@@ -3,8 +3,9 @@
 /// How many values deep a blob may nest, counting every value from the root
 /// down to the innermost one, `Secret` wrappers included
 ///
-/// The parser refuses deeper input with [`Reason::TooDeep`](crate::Reason)
-/// instead of overflowing the stack, and the writer refuses to write it.
+/// The parser refuses deeper input with
+/// [`ParseErrorReason::TooDeep`](crate::ParseErrorReason) instead of
+/// overflowing the stack, and the writer refuses to write it.
 ///
 /// Measured in a release build on x86-64, parsing one nested object or list
 /// takes about 1.8 KB of stack, so 12 levels take about 22 KB, leaving room on

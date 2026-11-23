@@ -8,7 +8,7 @@ use super::primitives::{checked_byte, le};
 use super::rejection::Rejection;
 use super::string::utf8;
 use crate::check::{KeyError, KeyProblem, MAX_DEPTH, check_keys};
-use crate::error::Reason;
+use crate::error::ParseErrorReason;
 use crate::types::{ValueTag, ValueView};
 use parsicomb::combinator::{
     AndExt, AndThenExt, MapErrExt, MapExt, MaxDepthError, MaxDepthExt, ReasonError,
@@ -19,7 +19,9 @@ use parsicomb::{ByteCursor, CodeLoc, Parser, ParsicombError, ntimes, parser_fn};
 pub fn parse_value<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = ValueView<'a>, Error = Failure<'a>> {
     parser_fn(|cursor: ByteCursor<'a>| -> Result<_, Failure<'a>> {
-        let tag = checked_byte(ValueTag::from_u8, |found| Reason::BadTag { found });
+        let tag = checked_byte(ValueTag::from_u8, |found| ParseErrorReason::BadTag {
+            found,
+        });
         let (tag, cursor) = tag.parse(cursor)?;
 
         match tag {
@@ -48,7 +50,7 @@ pub fn parse_value<'a>()
         // Only the limit itself is too deep; every failure inside keeps its own
         MaxDepthError::Inner(failure) => failure,
         MaxDepthError::TooDeep(limit) => Failure::from(ReasonError::new(
-            Reason::TooDeep,
+            ParseErrorReason::TooDeep,
             ParsicombError::from(limit),
         )),
     })
@@ -61,7 +63,7 @@ fn parse_bool<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = bool, Error
         1 => Some(true),
         _ => None,
     };
-    checked_byte(zero_or_one, |found| Reason::BadBool { found })
+    checked_byte(zero_or_one, |found| ParseErrorReason::BadBool { found })
 }
 
 /// An object's entries, which are refused if their keys break the key rules
@@ -92,8 +94,8 @@ fn key_failure<'a>(
     // Keys are slices of the input, so their offsets are where they start in it
     let offset = |key: &str| key.as_ptr() as usize - input.as_ptr() as usize;
     let reason = match error.problem {
-        KeyProblem::ContainsSlash => Reason::KeyContainsSlash,
-        KeyProblem::Duplicate { first } => Reason::DuplicateKey {
+        KeyProblem::ContainsSlash => ParseErrorReason::KeyContainsSlash,
+        KeyProblem::Duplicate { first } => ParseErrorReason::DuplicateKey {
             first: offset(entries[first].0),
         },
     };

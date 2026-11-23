@@ -2,7 +2,7 @@
 
 use super::aligned::AlignedWriter;
 use super::wire_len;
-use crate::error::{LengthField, WriteError};
+use crate::error::{LengthField, WriteError, WriteErrorReason};
 use crate::types::{File, FileData, ValueTag};
 use std::io::{self, Read, Write};
 
@@ -48,11 +48,11 @@ fn stream_from_handle<W: Write, R: Read + ?Sized>(
         let n = match reader.read(&mut buf[..to_read]) {
             Ok(n) => n,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(WriteError::FileRead(error)),
+            Err(error) => return Err(WriteErrorReason::FileRead(error).into()),
         };
         if n == 0 {
             let read = size - remaining;
-            return Err(WriteError::FileTooShort { size, read });
+            return Err(WriteErrorReason::FileTooShort { size, read }.into());
         }
         writer.write_all(&buf[..n])?;
         remaining -= n as u64;
@@ -73,8 +73,8 @@ mod tests {
         // Writing on would give a blob whose data length lies
         let error = stream_from_handle(&mut Vec::new(), &mut &b"abc"[..], 5).unwrap_err();
         assert!(matches!(
-            error,
-            WriteError::FileTooShort { size: 5, read: 3 }
+            error.reason(),
+            WriteErrorReason::FileTooShort { size: 5, read: 3 }
         ));
     }
 
@@ -84,7 +84,9 @@ mod tests {
         let file = File::from_bytes("x".repeat(65536), Vec::new());
         let error = write_file(&mut AlignedWriter::new(&mut Vec::new()), file).unwrap_err();
         let expected = (LengthField::Mimetype, 65536);
-        assert!(matches!(error, WriteError::TooLarge { field, len } if (field, len) == expected));
+        assert!(
+            matches!(error.reason(), &WriteErrorReason::TooLarge { field, len } if (field, len) == expected)
+        );
     }
 
     #[test]

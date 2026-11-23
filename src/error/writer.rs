@@ -5,14 +5,33 @@ use crate::types::DType;
 use std::error::Error;
 use std::{fmt, io};
 
+/// Writing a blob failed
+///
+/// [`reason`](WriteError::reason) says why. An I/O failure's cause is part of
+/// the message rather than [`Error::source`], so printing the error once shows
+/// it.
+#[derive(Debug)]
+pub struct WriteError {
+    reason: WriteErrorReason,
+}
+
+impl WriteError {
+    /// Why writing failed
+    pub fn reason(&self) -> &WriteErrorReason {
+        &self.reason
+    }
+
+    /// Why writing failed, taking ownership (e.g. of an [`io::Error`])
+    pub fn into_reason(self) -> WriteErrorReason {
+        self.reason
+    }
+}
+
 /// Why writing a blob failed: a value the format can't hold (which the
 /// parser would refuse to read back), or I/O failing
-///
-/// An I/O failure's cause is part of the message rather than
-/// [`Error::source`], so printing the error once shows it.
 #[non_exhaustive]
 #[derive(Debug)]
-pub enum WriteError {
+pub enum WriteErrorReason {
     /// Writing to the destination failed
     Io(io::Error),
     /// Reading a file value's handle failed
@@ -91,26 +110,46 @@ impl LengthField {
 
 impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.reason.fmt(f)
+    }
+}
+
+impl Error for WriteError {}
+
+impl From<WriteErrorReason> for WriteError {
+    fn from(reason: WriteErrorReason) -> Self {
+        WriteError { reason }
+    }
+}
+
+impl From<io::Error> for WriteError {
+    fn from(error: io::Error) -> Self {
+        WriteErrorReason::Io(error).into()
+    }
+}
+
+impl fmt::Display for WriteErrorReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WriteError::Io(error) => write!(f, "I/O error while writing: {error}"),
-            WriteError::FileRead(error) => write!(f, "reading a file handle failed: {error}"),
-            WriteError::FileTooShort { size, read } => {
+            WriteErrorReason::Io(error) => write!(f, "I/O error while writing: {error}"),
+            WriteErrorReason::FileRead(error) => write!(f, "reading a file handle failed: {error}"),
+            WriteErrorReason::FileTooShort { size, read } => {
                 write!(f, "file handle ended after {read} of its {size} bytes")
             }
             // The same messages the parser gives for the same problems
-            WriteError::KeyContainsSlash { key } => KeyError {
+            WriteErrorReason::KeyContainsSlash { key } => KeyError {
                 index: 0,
                 key,
                 problem: KeyProblem::ContainsSlash,
             }
             .fmt(f),
-            WriteError::DuplicateKey { key, first, second } => KeyError {
+            WriteErrorReason::DuplicateKey { key, first, second } => KeyError {
                 index: *second,
                 key,
                 problem: KeyProblem::Duplicate { first: *first },
             }
             .fmt(f),
-            WriteError::SizeMismatch {
+            WriteErrorReason::SizeMismatch {
                 dtype,
                 shape,
                 needed,
@@ -122,8 +161,8 @@ impl fmt::Display for WriteError {
                 actual: *actual,
             }
             .fmt(f),
-            WriteError::TooDeep => write!(f, "values nested more than {MAX_DEPTH} deep"),
-            WriteError::TooLarge { field, len } => {
+            WriteErrorReason::TooDeep => write!(f, "values nested more than {MAX_DEPTH} deep"),
+            WriteErrorReason::TooLarge { field, len } => {
                 let unit = field.unit();
                 write!(
                     f,
@@ -134,35 +173,29 @@ impl fmt::Display for WriteError {
     }
 }
 
-impl Error for WriteError {}
-
-impl From<io::Error> for WriteError {
-    fn from(error: io::Error) -> Self {
-        WriteError::Io(error)
-    }
-}
-
 impl From<KeyError<'_>> for WriteError {
     fn from(error: KeyError<'_>) -> Self {
         let key = error.key.to_string();
-        match error.problem {
-            KeyProblem::ContainsSlash => WriteError::KeyContainsSlash { key },
-            KeyProblem::Duplicate { first } => WriteError::DuplicateKey {
+        let reason = match error.problem {
+            KeyProblem::ContainsSlash => WriteErrorReason::KeyContainsSlash { key },
+            KeyProblem::Duplicate { first } => WriteErrorReason::DuplicateKey {
                 key,
                 first,
                 second: error.index,
             },
-        }
+        };
+        reason.into()
     }
 }
 
 impl From<DataSizeError<'_>> for WriteError {
     fn from(error: DataSizeError<'_>) -> Self {
-        WriteError::SizeMismatch {
+        let reason = WriteErrorReason::SizeMismatch {
             dtype: error.dtype,
             shape: error.shape.to_vec(),
             needed: error.needed,
             actual: error.actual,
-        }
+        };
+        reason.into()
     }
 }

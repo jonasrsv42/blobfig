@@ -3,7 +3,7 @@
 use super::Failure;
 use super::rejection::Rejection;
 use super::take::sized;
-use crate::error::Reason;
+use crate::error::ParseErrorReason;
 use parsicomb::{ByteCursor, CodeLoc, Parser, parser_fn};
 
 /// Read a length with `length`, then that many bytes as UTF-8 (zero-copy)
@@ -22,7 +22,7 @@ pub fn utf8<'a, L: Into<u64>>(
             let (data, end_position) = end.inner();
             let at = end_position - bytes.len() + error.valid_up_to();
             let message = format!("invalid UTF-8 in {what}");
-            Rejection::new(Reason::InvalidUtf8, message).at(CodeLoc::new(data, at))
+            Rejection::new(ParseErrorReason::InvalidUtf8, message).at(CodeLoc::new(data, at))
         })?;
         Ok((text, end))
     })

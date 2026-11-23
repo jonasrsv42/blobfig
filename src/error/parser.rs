@@ -12,7 +12,7 @@ use std::fmt;
 /// added without breaking that.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Reason {
+pub enum ParseErrorReason {
     /// The input ended before a value did, e.g. a cut-off file, or a corrupt
     /// length or count that claims more than the input holds. The offset is
     /// where the field that didn't fit starts.
@@ -60,7 +60,8 @@ pub enum Reason {
     TrailingBytes,
 }
 
-/// What a caller can do about a failure: the broad kind of a [`Reason`]
+/// What a caller can do about a failure: the broad kind of a
+/// [`ParseErrorReason`]
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReasonClass {
@@ -74,67 +75,68 @@ pub enum ReasonClass {
     Limit,
 }
 
-impl Reason {
+impl ParseErrorReason {
     /// A stable snake_case name for the reason, e.g. `"bad_tag"`, for logs and
     /// other languages; an existing reason's code never changes
     pub fn code(self) -> &'static str {
         match self {
-            Reason::Truncated => "truncated",
-            Reason::BadMagic => "bad_magic",
-            Reason::UnsupportedVersion { .. } => "unsupported_version",
-            Reason::UnsupportedFlags { .. } => "unsupported_flags",
-            Reason::BadTag { .. } => "bad_tag",
-            Reason::BadDType { .. } => "bad_dtype",
-            Reason::BadBool { .. } => "bad_bool",
-            Reason::InvalidUtf8 => "invalid_utf8",
-            Reason::BadPadding => "bad_padding",
-            Reason::SizeMismatch { .. } => "size_mismatch",
-            Reason::KeyContainsSlash => "key_contains_slash",
-            Reason::DuplicateKey { .. } => "duplicate_key",
-            Reason::TooDeep => "too_deep",
-            Reason::TrailingBytes => "trailing_bytes",
+            ParseErrorReason::Truncated => "truncated",
+            ParseErrorReason::BadMagic => "bad_magic",
+            ParseErrorReason::UnsupportedVersion { .. } => "unsupported_version",
+            ParseErrorReason::UnsupportedFlags { .. } => "unsupported_flags",
+            ParseErrorReason::BadTag { .. } => "bad_tag",
+            ParseErrorReason::BadDType { .. } => "bad_dtype",
+            ParseErrorReason::BadBool { .. } => "bad_bool",
+            ParseErrorReason::InvalidUtf8 => "invalid_utf8",
+            ParseErrorReason::BadPadding => "bad_padding",
+            ParseErrorReason::SizeMismatch { .. } => "size_mismatch",
+            ParseErrorReason::KeyContainsSlash => "key_contains_slash",
+            ParseErrorReason::DuplicateKey { .. } => "duplicate_key",
+            ParseErrorReason::TooDeep => "too_deep",
+            ParseErrorReason::TrailingBytes => "trailing_bytes",
         }
     }
 
     /// The broad kind of failure, for deciding what to do about it
     pub fn class(self) -> ReasonClass {
         match self {
-            Reason::BadMagic => ReasonClass::NotBlobfig,
-            Reason::UnsupportedVersion { .. } | Reason::UnsupportedFlags { .. } => {
-                ReasonClass::Unsupported
-            }
-            Reason::TooDeep => ReasonClass::Limit,
-            Reason::Truncated
-            | Reason::BadTag { .. }
-            | Reason::BadDType { .. }
-            | Reason::BadBool { .. }
-            | Reason::InvalidUtf8
-            | Reason::BadPadding
-            | Reason::SizeMismatch { .. }
-            | Reason::KeyContainsSlash
-            | Reason::DuplicateKey { .. }
-            | Reason::TrailingBytes => ReasonClass::Corrupt,
+            ParseErrorReason::BadMagic => ReasonClass::NotBlobfig,
+            ParseErrorReason::UnsupportedVersion { .. }
+            | ParseErrorReason::UnsupportedFlags { .. } => ReasonClass::Unsupported,
+            ParseErrorReason::TooDeep => ReasonClass::Limit,
+            ParseErrorReason::Truncated
+            | ParseErrorReason::BadTag { .. }
+            | ParseErrorReason::BadDType { .. }
+            | ParseErrorReason::BadBool { .. }
+            | ParseErrorReason::InvalidUtf8
+            | ParseErrorReason::BadPadding
+            | ParseErrorReason::SizeMismatch { .. }
+            | ParseErrorReason::KeyContainsSlash
+            | ParseErrorReason::DuplicateKey { .. }
+            | ParseErrorReason::TrailingBytes => ReasonClass::Corrupt,
         }
     }
 }
 
-impl fmt::Display for Reason {
+impl fmt::Display for ParseErrorReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Reason::Truncated => write!(f, "unexpected end of input"),
-            Reason::BadMagic => write!(f, "not a blobfig file (bad magic bytes)"),
-            Reason::UnsupportedVersion { found } => {
+            ParseErrorReason::Truncated => write!(f, "unexpected end of input"),
+            ParseErrorReason::BadMagic => write!(f, "not a blobfig file (bad magic bytes)"),
+            ParseErrorReason::UnsupportedVersion { found } => {
                 write!(f, "unsupported version {found}, expected {VERSION}")
             }
-            Reason::UnsupportedFlags { found } => {
+            ParseErrorReason::UnsupportedFlags { found } => {
                 write!(f, "unsupported header flags: 0x{found:08X}")
             }
-            Reason::BadTag { found } => write!(f, "invalid value tag: 0x{found:02X}"),
-            Reason::BadDType { found } => write!(f, "invalid dtype: 0x{found:02X}"),
-            Reason::BadBool { found } => write!(f, "invalid bool: 0x{found:02X}"),
-            Reason::InvalidUtf8 => write!(f, "invalid UTF-8"),
-            Reason::BadPadding => write!(f, "padding before array or file data isn't zero"),
-            Reason::SizeMismatch { needed, actual } => {
+            ParseErrorReason::BadTag { found } => write!(f, "invalid value tag: 0x{found:02X}"),
+            ParseErrorReason::BadDType { found } => write!(f, "invalid dtype: 0x{found:02X}"),
+            ParseErrorReason::BadBool { found } => write!(f, "invalid bool: 0x{found:02X}"),
+            ParseErrorReason::InvalidUtf8 => write!(f, "invalid UTF-8"),
+            ParseErrorReason::BadPadding => {
+                write!(f, "padding before array or file data isn't zero")
+            }
+            ParseErrorReason::SizeMismatch { needed, actual } => {
                 write!(
                     f,
                     "array data is {actual} bytes, but its dtype and shape need "
@@ -144,12 +146,12 @@ impl fmt::Display for Reason {
                     None => write!(f, "more bytes than fit in a u64"),
                 }
             }
-            Reason::KeyContainsSlash => write!(f, "key contains '/'"),
-            Reason::DuplicateKey { first } => {
+            ParseErrorReason::KeyContainsSlash => write!(f, "key contains '/'"),
+            ParseErrorReason::DuplicateKey { first } => {
                 write!(f, "duplicate key (first at offset {first})")
             }
-            Reason::TooDeep => write!(f, "maximum nesting depth exceeded"),
-            Reason::TrailingBytes => write!(f, "bytes left over after the value"),
+            ParseErrorReason::TooDeep => write!(f, "maximum nesting depth exceeded"),
+            ParseErrorReason::TrailingBytes => write!(f, "bytes left over after the value"),
         }
     }
 }
@@ -160,13 +162,13 @@ impl fmt::Display for Reason {
 /// Owns its data, so it outlives the input it was parsed from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
-    reason: Reason,
+    reason: ParseErrorReason,
     offset: usize,
     message: String,
 }
 
 impl ParseError {
-    pub(crate) fn new(reason: Reason, offset: usize, message: String) -> Self {
+    pub(crate) fn new(reason: ParseErrorReason, offset: usize, message: String) -> Self {
         ParseError {
             reason,
             offset,
@@ -175,7 +177,7 @@ impl ParseError {
     }
 
     /// Why parsing failed
-    pub fn reason(&self) -> Reason {
+    pub fn reason(&self) -> ParseErrorReason {
         self.reason
     }
 
@@ -210,33 +212,53 @@ mod tests {
     #[test]
     fn test_reason_codes_and_classes_are_stable() {
         let reasons = [
-            (Reason::Truncated, "truncated", ReasonClass::Corrupt),
-            (Reason::BadMagic, "bad_magic", ReasonClass::NotBlobfig),
             (
-                Reason::UnsupportedVersion { found: 0 },
+                ParseErrorReason::Truncated,
+                "truncated",
+                ReasonClass::Corrupt,
+            ),
+            (
+                ParseErrorReason::BadMagic,
+                "bad_magic",
+                ReasonClass::NotBlobfig,
+            ),
+            (
+                ParseErrorReason::UnsupportedVersion { found: 0 },
                 "unsupported_version",
                 ReasonClass::Unsupported,
             ),
             (
-                Reason::UnsupportedFlags { found: 0 },
+                ParseErrorReason::UnsupportedFlags { found: 0 },
                 "unsupported_flags",
                 ReasonClass::Unsupported,
             ),
-            (Reason::BadTag { found: 0 }, "bad_tag", ReasonClass::Corrupt),
             (
-                Reason::BadDType { found: 0 },
+                ParseErrorReason::BadTag { found: 0 },
+                "bad_tag",
+                ReasonClass::Corrupt,
+            ),
+            (
+                ParseErrorReason::BadDType { found: 0 },
                 "bad_dtype",
                 ReasonClass::Corrupt,
             ),
             (
-                Reason::BadBool { found: 0 },
+                ParseErrorReason::BadBool { found: 0 },
                 "bad_bool",
                 ReasonClass::Corrupt,
             ),
-            (Reason::InvalidUtf8, "invalid_utf8", ReasonClass::Corrupt),
-            (Reason::BadPadding, "bad_padding", ReasonClass::Corrupt),
             (
-                Reason::SizeMismatch {
+                ParseErrorReason::InvalidUtf8,
+                "invalid_utf8",
+                ReasonClass::Corrupt,
+            ),
+            (
+                ParseErrorReason::BadPadding,
+                "bad_padding",
+                ReasonClass::Corrupt,
+            ),
+            (
+                ParseErrorReason::SizeMismatch {
                     needed: None,
                     actual: 0,
                 },
@@ -244,18 +266,18 @@ mod tests {
                 ReasonClass::Corrupt,
             ),
             (
-                Reason::KeyContainsSlash,
+                ParseErrorReason::KeyContainsSlash,
                 "key_contains_slash",
                 ReasonClass::Corrupt,
             ),
             (
-                Reason::DuplicateKey { first: 0 },
+                ParseErrorReason::DuplicateKey { first: 0 },
                 "duplicate_key",
                 ReasonClass::Corrupt,
             ),
-            (Reason::TooDeep, "too_deep", ReasonClass::Limit),
+            (ParseErrorReason::TooDeep, "too_deep", ReasonClass::Limit),
             (
-                Reason::TrailingBytes,
+                ParseErrorReason::TrailingBytes,
                 "trailing_bytes",
                 ReasonClass::Corrupt,
             ),

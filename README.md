@@ -233,7 +233,7 @@ assert_eq!(parse(&blob).unwrap().file("model").unwrap().data.len(), 1 << 20);
 ```
 
 A handle that ends before the size it gave fails the write with
-`WriteError::FileTooShort`.
+`WriteErrorReason::FileTooShort`.
 
 To read a large blob, memory-map it (with a crate such as
 [memmap2](https://docs.rs/memmap2)) and pass the map to `parse`: only the
@@ -284,7 +284,7 @@ where. For code, `reason()` is an enum to match on, and the reason's
 `class()` sorts every reason into a few kinds by what a caller can do:
 
 ```rust
-use blobfig::{Reason, ReasonClass, Value, parse, writer};
+use blobfig::{ParseErrorReason, ReasonClass, Value, parse, writer};
 
 let blob = writer::to_bytes(Value::String("hello".into())).unwrap();
 let cut_off = &blob[..blob.len() - 2];
@@ -302,7 +302,7 @@ for input in [cut_off, &json[..]] {
 }
 
 let error = parse(cut_off).unwrap_err();
-assert_eq!(error.reason(), Reason::Truncated);
+assert_eq!(error.reason(), ParseErrorReason::Truncated);
 assert_eq!(error.reason().code(), "truncated");
 assert_eq!(error.offset(), 21);
 ```
@@ -319,14 +319,14 @@ Things to notice:
 - `offset()` is the position in the input where parsing failed. Here that is
   where the string's five bytes start, since only three of them are there.
 - `code()` is a stable name for the reason, for logs and other languages.
-- `Reason` and `ReasonClass` are `#[non_exhaustive]`, so a `match` needs a
-  `_` arm, and reasons that carry data are matched with `{ .. }`, as in
-  `Reason::BadTag { .. }`.
+- `ParseErrorReason` and `ReasonClass` are `#[non_exhaustive]`, so a `match`
+  needs a `_` arm, and reasons that carry data are matched with `{ .. }`, as
+  in `ParseErrorReason::BadTag { .. }`.
 
-There are two more error types, both enums: `AccessError` when reading a
-value by path (not found, or another type), and `WriteError` when writing
-(I/O, or a value the format can't hold). The API docs list every reason and
-variant.
+There are two more error types: `AccessError` when reading a value by path
+(not found, or another type), and `WriteError` when writing, whose
+`reason()` is a `WriteErrorReason` (I/O, or a value the format can't hold).
+The API docs list every reason and variant.
 
 ## Untrusted input
 
@@ -336,11 +336,13 @@ invalid UTF-8, array data that doesn't match its dtype and shape, and
 duplicate keys are all refused.
 
 Each level of nesting uses stack, so values nest at most `MAX_DEPTH` (12)
-deep. Deeper input fails with `Reason::TooDeep` instead of overflowing the
-stack:
+deep. Deeper input fails with `ParseErrorReason::TooDeep` instead of
+overflowing the stack:
 
 ```rust
-use blobfig::{HEADER_SIZE, MAX_DEPTH, Reason, ReasonClass, Value, WriteError, parse, writer};
+use blobfig::{
+    HEADER_SIZE, MAX_DEPTH, ParseErrorReason, ReasonClass, Value, WriteErrorReason, parse, writer,
+};
 
 // A valid header, then a thousand lists of one item, each inside the last
 let mut hostile = writer::to_bytes(Value::Int(1)).unwrap();
@@ -351,7 +353,7 @@ for _ in 0..1000 {
 }
 
 let error = parse(&hostile).unwrap_err();
-assert_eq!(error.reason(), Reason::TooDeep);
+assert_eq!(error.reason(), ParseErrorReason::TooDeep);
 assert_eq!(error.reason().class(), ReasonClass::Limit);
 
 // The writer has the same limit
@@ -359,7 +361,8 @@ let mut deep = Value::Int(1);
 for _ in 0..MAX_DEPTH {
     deep = Value::list(vec![deep]);
 }
-assert!(matches!(writer::to_bytes(deep), Err(WriteError::TooDeep)));
+let error = writer::to_bytes(deep).unwrap_err();
+assert!(matches!(error.reason(), WriteErrorReason::TooDeep));
 ```
 
 The limit is sized so the parser fits a 32 KiB stack, such as an ESP32

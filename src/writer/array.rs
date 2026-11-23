@@ -12,14 +12,7 @@ pub fn write_array<W: Write>(
     writer: &mut AlignedWriter<'_, W>,
     arr: &Array,
 ) -> Result<(), WriteError> {
-    check_data_size(arr.dtype, &arr.shape, arr.data.len()).map_err(|error| {
-        WriteError::SizeMismatch {
-            dtype: error.dtype,
-            shape: error.shape.to_vec(),
-            needed: error.needed,
-            actual: error.actual,
-        }
-    })?;
+    check_data_size(arr.dtype, &arr.shape, arr.data.len())?;
     writer.write_all(&[ValueTag::Array as u8])?;
     writer.write_all(&[arr.dtype as u8])?;
     writer.write_all(&[wire_len::<u8>(
@@ -38,6 +31,7 @@ pub fn write_array<W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::WriteErrorReason;
     use crate::parser::parse_value;
     use crate::types::{DType, NodeView};
     use parsicomb::{ByteCursor, Parser};
@@ -48,7 +42,9 @@ mod tests {
         let arr = Array::new(DType::U8, vec![1; 256], vec![0]);
         let error = write_array(&mut AlignedWriter::new(&mut Vec::new()), &arr).unwrap_err();
         let expected = (LengthField::ArrayDimensions, 256);
-        assert!(matches!(error, WriteError::TooLarge { field, len } if (field, len) == expected));
+        assert!(
+            matches!(error.reason(), &WriteErrorReason::TooLarge { field, len } if (field, len) == expected)
+        );
     }
 
     #[test]
@@ -125,7 +121,7 @@ mod tests {
         let error = write_array(&mut AlignedWriter::new(&mut Vec::new()), &arr).unwrap_err();
         let expected = (Some(4000), 3);
         assert!(
-            matches!(error, WriteError::SizeMismatch { needed, actual, .. } if (needed, actual) == expected)
+            matches!(error.reason(), &WriteErrorReason::SizeMismatch { needed, actual, .. } if (needed, actual) == expected)
         );
     }
 

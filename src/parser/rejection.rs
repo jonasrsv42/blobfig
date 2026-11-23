@@ -2,20 +2,20 @@
 
 use super::Failure;
 use crate::check::DataSizeError;
-use crate::error::Reason;
+use crate::error::ParseErrorReason;
 use parsicomb::combinator::ReasonError;
 use parsicomb::{CodeLoc, ParsicombError};
 
 /// A refused value: its reason, and the message for people, taken together
 /// so the two can't disagree
 pub struct Rejection {
-    reason: Reason,
+    reason: ParseErrorReason,
     message: String,
 }
 
 impl Rejection {
     /// A reason with a more specific message than its own description
-    pub fn new(reason: Reason, message: String) -> Self {
+    pub fn new(reason: ParseErrorReason, message: String) -> Self {
         Rejection { reason, message }
     }
 
@@ -27,8 +27,8 @@ impl Rejection {
     }
 }
 
-impl From<Reason> for Rejection {
-    fn from(reason: Reason) -> Self {
+impl From<ParseErrorReason> for Rejection {
+    fn from(reason: ParseErrorReason) -> Self {
         Rejection::new(reason, reason.to_string())
     }
 }

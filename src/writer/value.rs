@@ -2,7 +2,7 @@
 
 use super::aligned::AlignedWriter;
 use crate::check::{MAX_DEPTH, check_keys};
-use crate::error::{LengthField, WriteError};
+use crate::error::{LengthField, WriteError, WriteErrorReason};
 use crate::types::{Object, ObjectNode, Value, ValueTag};
 use std::io::Write;
 
@@ -26,7 +26,7 @@ fn write_nested<W: Write>(
     depth: usize,
 ) -> Result<(), WriteError> {
     if depth > MAX_DEPTH {
-        return Err(WriteError::TooDeep);
+        return Err(WriteErrorReason::TooDeep.into());
     }
     match value {
         Value::Bool(b) => {

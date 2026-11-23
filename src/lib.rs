@@ -53,7 +53,10 @@ pub mod areamy_ext;
 
 // Re-export common types at crate root
 pub use check::MAX_DEPTH;
-pub use error::{AccessError, LengthField, ParseError, Reason, ReasonClass, WriteError};
+pub use error::{
+    AccessError, LengthField, ParseError, ParseErrorReason, ReasonClass, WriteError,
+    WriteErrorReason,
+};
 pub use parser::parse;
 pub use types::{
     ALIGNMENT, Array, ArrayNode, ArrayView, DType, File, FileData, FileHandle, FileNode, FileView,

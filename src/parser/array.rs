@@ -5,7 +5,7 @@ use super::or_truncated::OrTruncatedExt;
 use super::primitives::{checked, checked_byte, le};
 use super::take::aligned;
 use crate::check::check_data_size;
-use crate::error::Reason;
+use crate::error::ParseErrorReason;
 use crate::types::{ArrayView, DType};
 use parsicomb::combinator::{AndExt, AndThenExt};
 use parsicomb::{ByteCursor, Parser, ntimes};
@@ -21,7 +21,7 @@ pub fn parse_array_body<'a>()
 -> impl Parser<Cursor = ByteCursor<'a>, Output = ArrayView<'a>, Error = Failure<'a>> {
     let shape =
         le(u8::from_le_bytes).and_then(|ndim| ntimes(le(u64::from_le_bytes), usize::from(ndim)));
-    let array = checked_byte(DType::from_u8, |found| Reason::BadDType { found })
+    let array = checked_byte(DType::from_u8, |found| ParseErrorReason::BadDType { found })
         .and(shape)
         .and(aligned(le(u64::from_le_bytes)))
         .or_truncated();

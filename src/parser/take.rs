@@ -4,7 +4,7 @@
 use super::Failure;
 use super::or_truncated::OrTruncatedExt;
 use super::primitives::checked;
-use crate::error::Reason;
+use crate::error::ParseErrorReason;
 use crate::types::padding_at;
 use parsicomb::combinator::{AndThenExt, TerminatedExt};
 use parsicomb::{ByteCursor, Cursor, MapExt, Parser, ParsicombError, parser_fn};
@@ -37,7 +37,7 @@ fn zero_padding<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error
             if bytes.iter().all(|&byte| byte == 0) {
                 Ok(())
             } else {
-                Err(Reason::BadPadding.into())
+                Err(ParseErrorReason::BadPadding.into())
             }
         })
         .parse(cursor)
@@ -48,8 +48,8 @@ fn zero_padding<'a>() -> impl Parser<Cursor = ByteCursor<'a>, Output = (), Error
 ///
 /// `count` is a `u64` because lengths in the format are. A count too large for
 /// `usize` (on a 32-bit target) can't fit in the input either, so like any
-/// count past the end it fails as [`Reason::Truncated`], instead of being cut
-/// down to fit.
+/// count past the end it fails as [`ParseErrorReason::Truncated`], instead of
+/// being cut down to fit.
 pub fn take<'a>(
     count: u64,
 ) -> impl Parser<Cursor = ByteCursor<'a>, Output = &'a [u8], Error = Failure<'a>> {

@@ -3,7 +3,7 @@
 use super::Failure;
 use super::or_truncated::OrTruncatedExt;
 use super::rejection::Rejection;
-use crate::error::Reason;
+use crate::error::ParseErrorReason;
 use parsicomb::{ByteCursor, Cursor, Parser, ParsicombError, parser_fn};
 
 /// Run `parser`, then `check` its output; a rejected output is reported at
@@ -23,10 +23,10 @@ pub fn checked<'a, T, U>(
 
 /// Read one byte and convert it with `convert`; a byte it refuses (`None`)
 /// fails at that byte with `reason`, e.g.
-/// `checked_byte(DType::from_u8, |found| Reason::BadDType { found })`
+/// `checked_byte(DType::from_u8, |found| ParseErrorReason::BadDType { found })`
 pub fn checked_byte<'a, T>(
     convert: fn(u8) -> Option<T>,
-    reason: fn(u8) -> Reason,
+    reason: fn(u8) -> ParseErrorReason,
 ) -> impl Parser<Cursor = ByteCursor<'a>, Output = T, Error = Failure<'a>> {
     checked(le(u8::from_le_bytes), move |b| {
         convert(b).ok_or_else(|| reason(b).into())

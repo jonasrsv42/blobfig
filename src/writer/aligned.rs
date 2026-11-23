@@ -1,7 +1,6 @@
 //! Writing that knows where in the blob it is, so array and file data can be
 //! padded to start aligned
 
-use crate::error::WriteError;
 use crate::types::{ALIGNMENT, padding_at};
 use std::io::{self, Write};
 
@@ -19,10 +18,9 @@ impl<'w, W: Write> AlignedWriter<'w, W> {
     }
 
     /// Write zero bytes up to the next multiple of [`ALIGNMENT`]
-    pub fn pad_to_alignment(&mut self) -> Result<(), WriteError> {
+    pub fn pad_to_alignment(&mut self) -> io::Result<()> {
         let padding = padding_at(self.position) as usize;
-        self.write_all(&[0; ALIGNMENT][..padding])?;
-        Ok(())
+        self.write_all(&[0; ALIGNMENT][..padding])
     }
 }
 

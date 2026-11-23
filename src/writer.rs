@@ -5,7 +5,7 @@ mod array;
 mod file;
 mod value;
 
-use crate::error::{LengthField, WriteError};
+use crate::error::{LengthField, WriteError, WriteErrorReason};
 use crate::types::{MAGIC, VERSION, Value};
 use std::io::Write;
 
@@ -16,7 +16,7 @@ use value::write_value;
 /// count or length prefix. A value too large to represent is an error, not a
 /// silent truncation into corrupt output.
 fn wire_len<T: TryFrom<usize>>(len: usize, field: LengthField) -> Result<T, WriteError> {
-    T::try_from(len).map_err(|_| WriteError::TooLarge { field, len })
+    T::try_from(len).map_err(|_| WriteErrorReason::TooLarge { field, len }.into())
 }
 
 /// Write a blobfig value to a writer (consumes the value to handle streaming)
@@ -140,7 +140,9 @@ mod tests {
     fn test_key_with_slash_rejected() {
         let value = Value::object(vec![("invalid/key".into(), Value::Int(1))]);
         let error = to_bytes(value).unwrap_err();
-        assert!(matches!(error, WriteError::KeyContainsSlash { key } if key == "invalid/key"));
+        assert!(
+            matches!(error.reason(), WriteErrorReason::KeyContainsSlash { key } if key == "invalid/key")
+        );
     }
 
     #[test]
@@ -201,7 +203,7 @@ mod tests {
         assert!(crate::parse(&bytes).is_ok());
 
         let error = to_bytes(nested(crate::MAX_DEPTH + 1)).unwrap_err();
-        assert!(matches!(error, WriteError::TooDeep));
+        assert!(matches!(error.reason(), WriteErrorReason::TooDeep));
     }
 
     #[test]
@@ -212,7 +214,7 @@ mod tests {
         ]);
         let error = to_bytes(value).unwrap_err();
         assert!(
-            matches!(error, WriteError::DuplicateKey { key, first: 0, second: 1 } if key == "a")
+            matches!(error.reason(), WriteErrorReason::DuplicateKey { key, first: 0, second: 1 } if key == "a")
         );
     }
 }
