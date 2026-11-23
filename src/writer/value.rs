@@ -2,7 +2,7 @@
 
 use super::aligned::AlignedWriter;
 use crate::check::{MAX_DEPTH, check_keys};
-use crate::error::{LengthField, WriteError, WriteErrorReason};
+use crate::error::{LengthField, PathSegment, WriteError, WriteErrorReason};
 use crate::types::{Object, ObjectNode, Value, ValueTag};
 use std::io::Write;
 
@@ -53,8 +53,9 @@ fn write_nested<W: Write>(
         Value::List(items) => {
             writer.write_all(&[ValueTag::List as u8])?;
             writer.write_all(&wire_len::<u32>(items.len(), LengthField::List)?.to_le_bytes())?;
-            for item in items {
-                write_nested(writer, item, depth + 1)?;
+            for (index, item) in items.into_iter().enumerate() {
+                write_nested(writer, item, depth + 1)
+                    .map_err(|error| error.inside(PathSegment::Index(index)))?;
             }
         }
         Value::Secret(inner) => {
@@ -79,7 +80,8 @@ fn write_object<W: Write>(
     for (key, val) in object {
         writer.write_all(&wire_len::<u16>(key.len(), LengthField::Key)?.to_le_bytes())?;
         writer.write_all(key.as_bytes())?;
-        write_nested(writer, val, depth + 1)?;
+        write_nested(writer, val, depth + 1)
+            .map_err(|error| error.inside(PathSegment::Key(key)))?;
     }
     Ok(())
 }

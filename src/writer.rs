@@ -217,4 +217,54 @@ mod tests {
             matches!(error.reason(), WriteErrorReason::DuplicateKey { key, first: 0, second: 1 } if key == "a")
         );
     }
+    #[test]
+    fn test_errors_say_which_value_failed() {
+        use crate::error::PathSegment::{Index, Key};
+        let bad = || Value::Array(Array::new(DType::F32, vec![4], vec![0; 3]));
+
+        // Object keys and list indices, root first; a secret adds no step
+        let value = Value::object(vec![(
+            "model".into(),
+            Value::list(vec![
+                Value::Int(0),
+                Value::secret(Value::object(vec![("my weights".into(), bad())])),
+            ]),
+        )]);
+        let error = to_bytes(value).unwrap_err();
+        let path: Vec<_> = error.path().segments().cloned().collect();
+        let expected = [Key("model".into()), Index(1), Key("my weights".into())];
+        assert_eq!(path, expected);
+        let reason = error.reason().to_string();
+        assert_eq!(
+            error.to_string(),
+            format!("at \"model/1/my weights\": {reason}")
+        );
+
+        // At the root there is nowhere to point
+        let at_root = to_bytes(bad()).unwrap_err();
+        assert_eq!(at_root.to_string(), at_root.reason().to_string());
+    }
+
+    #[test]
+    fn test_io_errors_do_not_blame_a_value() {
+        struct FullAfter(usize);
+        impl Write for FullAfter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                let n = buf.len().min(self.0);
+                self.0 -= n;
+                match n {
+                    0 => Err(std::io::ErrorKind::StorageFull.into()),
+                    n => Ok(n),
+                }
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        // Room for the header and the object's start, so it fails inside "k"
+        let value = Value::object(vec![("k".into(), Value::Int(1))]);
+        let error = write(&mut FullAfter(16 + 8), value).unwrap_err();
+        assert!(matches!(error.reason(), WriteErrorReason::Io(_)));
+        assert!(error.path().is_root());
+    }
 }

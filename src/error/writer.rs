@@ -1,5 +1,6 @@
 //! Errors from writing a blob
 
+use super::path::{PathSegment, ValuePath};
 use crate::check::{DataSizeError, KeyError, KeyProblem, MAX_DEPTH};
 use crate::types::DType;
 use std::error::Error;
@@ -7,11 +8,13 @@ use std::{fmt, io};
 
 /// Writing a blob failed
 ///
-/// [`reason`](WriteError::reason) says why. An I/O failure's cause is part of
-/// the message rather than [`Error::source`], so printing the error once shows
-/// it.
+/// [`reason`](WriteError::reason) says why, and [`path`](WriteError::path)
+/// says at which value; the message starts with it, as in
+/// `at "model/layers/3": ...`. An I/O failure's cause is part of the message
+/// rather than [`Error::source`], so printing the error once shows it.
 #[derive(Debug)]
 pub struct WriteError {
+    path: ValuePath,
     reason: WriteErrorReason,
 }
 
@@ -21,9 +24,26 @@ impl WriteError {
         &self.reason
     }
 
+    /// The value being written when it failed. Key problems are at the object
+    /// holding the keys. [`WriteErrorReason::Io`] is at the root, since the
+    /// destination failing isn't about a value.
+    pub fn path(&self) -> &ValuePath {
+        &self.path
+    }
+
     /// Why writing failed, taking ownership (e.g. of an [`io::Error`])
     pub fn into_reason(self) -> WriteErrorReason {
         self.reason
+    }
+
+    /// The same error, for a value one step further in, through `parent`
+    pub fn inside(mut self, parent: PathSegment) -> Self {
+        // With buffering, the destination may fail on a later value than the
+        // one whose bytes it couldn't take, so it points at none
+        if !matches!(self.reason, WriteErrorReason::Io(_)) {
+            self.path.prepend(parent);
+        }
+        self
     }
 }
 
@@ -110,7 +130,7 @@ impl LengthField {
 
 impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.reason.fmt(f)
+        self.path.locate(&self.reason).fmt(f)
     }
 }
 
@@ -118,7 +138,10 @@ impl Error for WriteError {}
 
 impl From<WriteErrorReason> for WriteError {
     fn from(reason: WriteErrorReason) -> Self {
-        WriteError { reason }
+        WriteError {
+            path: ValuePath::default(),
+            reason,
+        }
     }
 }
 

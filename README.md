@@ -284,7 +284,7 @@ where. For code, `reason()` is an enum to match on, and the reason's
 `class()` sorts every reason into a few kinds by what a caller can do:
 
 ```rust
-use blobfig::{ParseErrorReason, ReasonClass, Value, parse, writer};
+use blobfig::{ParseErrorClass, ParseErrorReason, Value, parse, writer};
 
 let blob = writer::to_bytes(Value::String("hello".into())).unwrap();
 let cut_off = &blob[..blob.len() - 2];
@@ -293,9 +293,9 @@ let json = br#"{"version": 1}"#;
 for input in [cut_off, &json[..]] {
     let error = parse(input).unwrap_err();
     let advice = match error.reason().class() {
-        ReasonClass::NotBlobfig => "is this the right file?",
-        ReasonClass::Unsupported => "upgrade blobfig",
-        ReasonClass::Corrupt => "fetch it again",
+        ParseErrorClass::NotBlobfig => "is this the right file?",
+        ParseErrorClass::Unsupported => "upgrade blobfig",
+        ParseErrorClass::Corrupt => "fetch it again",
         _ => "refuse it",
     };
     println!("{error}: {advice}");
@@ -319,13 +319,20 @@ Things to notice:
 - `offset()` is the position in the input where parsing failed. Here that is
   where the string's five bytes start, since only three of them are there.
 - `code()` is a stable name for the reason, for logs and other languages.
-- `ParseErrorReason` and `ReasonClass` are `#[non_exhaustive]`, so a `match`
-  needs a `_` arm, and reasons that carry data are matched with `{ .. }`, as
-  in `ParseErrorReason::BadTag { .. }`.
+- `ParseErrorReason` and `ParseErrorClass` are `#[non_exhaustive]`, so a
+  `match` needs a `_` arm, and reasons that carry data are matched with
+  `{ .. }`, as in `ParseErrorReason::BadTag { .. }`.
 
 There are two more error types: `AccessError` when reading a value by path
-(not found, or another type), and `WriteError` when writing, whose
-`reason()` is a `WriteErrorReason` (I/O, or a value the format can't hold).
+(not found, or another type), and `WriteError` when writing. A
+`WriteError`'s `reason()` is a `WriteErrorReason` (I/O, or a value the
+format can't hold), and its `path()` is the value it failed at, which its
+message starts with:
+
+```text
+at "model/layers/3": array data is 12 bytes, but F32 with shape [4] needs 16 bytes
+```
+
 The API docs list every reason and variant.
 
 ## Untrusted input
@@ -341,7 +348,8 @@ overflowing the stack:
 
 ```rust
 use blobfig::{
-    HEADER_SIZE, MAX_DEPTH, ParseErrorReason, ReasonClass, Value, WriteErrorReason, parse, writer,
+    HEADER_SIZE, MAX_DEPTH, ParseErrorClass, ParseErrorReason, Value, WriteErrorReason, parse,
+    writer,
 };
 
 // A valid header, then a thousand lists of one item, each inside the last
@@ -354,7 +362,7 @@ for _ in 0..1000 {
 
 let error = parse(&hostile).unwrap_err();
 assert_eq!(error.reason(), ParseErrorReason::TooDeep);
-assert_eq!(error.reason().class(), ReasonClass::Limit);
+assert_eq!(error.reason().class(), ParseErrorClass::Limit);
 
 // The writer has the same limit
 let mut deep = Value::Int(1);

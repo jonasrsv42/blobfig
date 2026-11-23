@@ -64,7 +64,7 @@ pub enum ParseErrorReason {
 /// [`ParseErrorReason`]
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReasonClass {
+pub enum ParseErrorClass {
     /// The input isn't a blobfig blob at all
     NotBlobfig,
     /// A blobfig blob this library can't read, e.g. from a newer writer
@@ -98,12 +98,12 @@ impl ParseErrorReason {
     }
 
     /// The broad kind of failure, for deciding what to do about it
-    pub fn class(self) -> ReasonClass {
+    pub fn class(self) -> ParseErrorClass {
         match self {
-            ParseErrorReason::BadMagic => ReasonClass::NotBlobfig,
+            ParseErrorReason::BadMagic => ParseErrorClass::NotBlobfig,
             ParseErrorReason::UnsupportedVersion { .. }
-            | ParseErrorReason::UnsupportedFlags { .. } => ReasonClass::Unsupported,
-            ParseErrorReason::TooDeep => ReasonClass::Limit,
+            | ParseErrorReason::UnsupportedFlags { .. } => ParseErrorClass::Unsupported,
+            ParseErrorReason::TooDeep => ParseErrorClass::Limit,
             ParseErrorReason::Truncated
             | ParseErrorReason::BadTag { .. }
             | ParseErrorReason::BadDType { .. }
@@ -113,7 +113,7 @@ impl ParseErrorReason {
             | ParseErrorReason::SizeMismatch { .. }
             | ParseErrorReason::KeyContainsSlash
             | ParseErrorReason::DuplicateKey { .. }
-            | ParseErrorReason::TrailingBytes => ReasonClass::Corrupt,
+            | ParseErrorReason::TrailingBytes => ParseErrorClass::Corrupt,
         }
     }
 }
@@ -215,47 +215,47 @@ mod tests {
             (
                 ParseErrorReason::Truncated,
                 "truncated",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
             (
                 ParseErrorReason::BadMagic,
                 "bad_magic",
-                ReasonClass::NotBlobfig,
+                ParseErrorClass::NotBlobfig,
             ),
             (
                 ParseErrorReason::UnsupportedVersion { found: 0 },
                 "unsupported_version",
-                ReasonClass::Unsupported,
+                ParseErrorClass::Unsupported,
             ),
             (
                 ParseErrorReason::UnsupportedFlags { found: 0 },
                 "unsupported_flags",
-                ReasonClass::Unsupported,
+                ParseErrorClass::Unsupported,
             ),
             (
                 ParseErrorReason::BadTag { found: 0 },
                 "bad_tag",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
             (
                 ParseErrorReason::BadDType { found: 0 },
                 "bad_dtype",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
             (
                 ParseErrorReason::BadBool { found: 0 },
                 "bad_bool",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
             (
                 ParseErrorReason::InvalidUtf8,
                 "invalid_utf8",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
             (
                 ParseErrorReason::BadPadding,
                 "bad_padding",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
             (
                 ParseErrorReason::SizeMismatch {
@@ -263,23 +263,27 @@ mod tests {
                     actual: 0,
                 },
                 "size_mismatch",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
             (
                 ParseErrorReason::KeyContainsSlash,
                 "key_contains_slash",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
             (
                 ParseErrorReason::DuplicateKey { first: 0 },
                 "duplicate_key",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
-            (ParseErrorReason::TooDeep, "too_deep", ReasonClass::Limit),
+            (
+                ParseErrorReason::TooDeep,
+                "too_deep",
+                ParseErrorClass::Limit,
+            ),
             (
                 ParseErrorReason::TrailingBytes,
                 "trailing_bytes",
-                ReasonClass::Corrupt,
+                ParseErrorClass::Corrupt,
             ),
         ];
         for (reason, code, class) in reasons {

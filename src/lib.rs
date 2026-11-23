@@ -54,8 +54,8 @@ pub mod areamy_ext;
 // Re-export common types at crate root
 pub use check::MAX_DEPTH;
 pub use error::{
-    AccessError, LengthField, ParseError, ParseErrorReason, ReasonClass, WriteError,
-    WriteErrorReason,
+    AccessError, LengthField, ParseError, ParseErrorClass, ParseErrorReason, PathSegment,
+    ValuePath, WriteError, WriteErrorReason,
 };
 pub use parser::parse;
 pub use types::{
