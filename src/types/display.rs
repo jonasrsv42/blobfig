@@ -59,92 +59,73 @@ fn fmt_node<T: NodeView>(f: &mut fmt::Formatter<'_>, v: &T, indent: usize) -> fm
     // render as nothing. The tag selects the arm, so each accessor below is
     // guaranteed `Some` (the `as_*` peel secrets, but a `Secret` tag is handled
     // first, mirroring `Debug`'s redaction choke point). If the tag and its
-    // accessor ever disagree, each arm renders `DISPLAY_ERROR` rather than
+    // accessor ever disagree, `DISPLAY_ERROR` is rendered rather than
     // unwrapping — visible, and panic-free.
-    match v.tag() {
-        ValueTag::Secret => f.write_str(REDACTED),
-        ValueTag::Bool => match v.as_bool() {
-            Some(b) => write!(f, "{b}"),
-            None => f.write_str(DISPLAY_ERROR),
-        },
-        ValueTag::Int => match v.as_int() {
-            Some(i) => write!(f, "{i}"),
-            None => f.write_str(DISPLAY_ERROR),
-        },
-        ValueTag::Float => match v.as_float() {
-            Some(x) => write!(f, "{x}"),
-            None => f.write_str(DISPLAY_ERROR),
-        },
+    let rendered = match v.tag() {
+        ValueTag::Secret => Some(f.write_str(REDACTED)),
+        ValueTag::Bool => v.as_bool().map(|b| write!(f, "{b}")),
+        ValueTag::Int => v.as_int().map(|i| write!(f, "{i}")),
+        ValueTag::Float => v.as_float().map(|x| write!(f, "{x}")),
         // Quoted (Rust debug form) so strings are unambiguous — `"true"` vs the
         // bool `true`, `"42"` vs the int `42` — and so control characters are
         // escaped, keeping each value on one line (can't forge a fake `key:`).
-        ValueTag::String => match v.as_str() {
-            Some(s) => write!(f, "{s:?}"),
-            None => f.write_str(DISPLAY_ERROR),
-        },
-        ValueTag::File => match v.as_file() {
-            Some(file) => write!(f, "<file {}, {}>", file.mimetype(), human_size(file.size())),
-            None => f.write_str(DISPLAY_ERROR),
-        },
-        ValueTag::Array => match v.as_array() {
-            Some(array) => write!(
-                f,
-                "<array {:?} {:?}, {}>",
-                array.dtype(),
-                array.shape(),
-                human_size(array.data().len() as u64)
-            ),
-            None => f.write_str(DISPLAY_ERROR),
-        },
-        ValueTag::Object => {
-            let Some(object) = v.as_object() else {
-                return f.write_str(DISPLAY_ERROR);
-            };
-            if object.entries().next().is_none() {
-                return f.write_str("{}");
-            }
-            for (i, (key, val)) in object.entries().enumerate() {
-                // Root-level first entry has no leading newline (avoids a blank
-                // line); everything else starts a fresh indented line.
-                if indent == 0 && i == 0 {
-                    write!(f, "{key}:")?;
-                } else {
-                    write!(f, "\n{:indent$}{key}:", "")?;
-                }
-                fmt_member(f, val, indent + 2)?;
-            }
-            Ok(())
-        }
-        ValueTag::List => {
-            let Some(list) = v.as_list() else {
-                return f.write_str(DISPLAY_ERROR);
-            };
-            let items = list.items();
-            if items.is_empty() {
-                return f.write_str("[]");
-            }
-            for (i, item) in items.iter().enumerate() {
-                if indent == 0 && i == 0 {
-                    f.write_str("-")?;
-                } else {
-                    write!(f, "\n{:indent$}-", "")?;
-                }
-                fmt_member(f, item, indent + 2)?;
-            }
-            Ok(())
-        }
+        ValueTag::String => v.as_str().map(|s| write!(f, "{s:?}")),
+        ValueTag::File => v.as_file().map(|file| {
+            let size = human_size(file.size());
+            write!(f, "<file {}, {size}>", file.mimetype())
+        }),
+        ValueTag::Array => v.as_array().map(|array| {
+            let size = human_size(array.data().len() as u64);
+            write!(f, "<array {:?} {:?}, {size}>", array.dtype(), array.shape())
+        }),
+        ValueTag::Object => v.as_object().map(|object| fmt_object(f, object, indent)),
+        ValueTag::List => v.as_list().map(|list| fmt_list(f, list, indent)),
+    };
+    rendered.unwrap_or_else(|| f.write_str(DISPLAY_ERROR))
+}
+
+fn fmt_object<O: ObjectNode>(f: &mut fmt::Formatter<'_>, object: &O, indent: usize) -> fmt::Result {
+    if object.entries().next().is_none() {
+        return f.write_str("{}");
+    }
+    for (i, (key, val)) in object.entries().enumerate() {
+        start_line(f, indent, i)?;
+        write!(f, "{key}:")?;
+        fmt_member(f, val, indent + 2)?;
+    }
+    Ok(())
+}
+
+fn fmt_list<L: ListNode>(f: &mut fmt::Formatter<'_>, list: &L, indent: usize) -> fmt::Result {
+    let items = list.items();
+    if items.is_empty() {
+        return f.write_str("[]");
+    }
+    for (i, item) in items.iter().enumerate() {
+        start_line(f, indent, i)?;
+        f.write_str("-")?;
+        fmt_member(f, item, indent + 2)?;
+    }
+    Ok(())
+}
+
+/// Start the line of a container's `i`th member: a fresh indented line, except
+/// for the first line of the whole output, which would otherwise be blank
+fn start_line(f: &mut fmt::Formatter<'_>, indent: usize, i: usize) -> fmt::Result {
+    if indent == 0 && i == 0 {
+        Ok(())
+    } else {
+        write!(f, "\n{:indent$}", "")
     }
 }
 
 /// Render a member value after its `key:` / `-` marker: blocks continue on the
 /// following indented lines, scalars stay inline after a single space.
 fn fmt_member<T: NodeView>(f: &mut fmt::Formatter<'_>, val: &T, indent: usize) -> fmt::Result {
-    if is_block(val) {
-        fmt_node(f, val, indent)
-    } else {
+    if !is_block(val) {
         f.write_str(" ")?;
-        fmt_node(f, val, indent)
     }
+    fmt_node(f, val, indent)
 }
 
 #[cfg(test)]
