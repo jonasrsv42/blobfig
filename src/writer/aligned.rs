@@ -6,14 +6,14 @@ use std::io::{self, Write};
 
 /// Any writer, counting the bytes it accepts from the start of the blob, so
 /// it can pad array and file data to start aligned
-pub struct AlignedWriter<'w, W> {
-    inner: &'w mut W,
+pub struct AlignedWriter<'sink, WriterType> {
+    inner: &'sink mut WriterType,
     position: u64,
 }
 
-impl<'w, W: Write> AlignedWriter<'w, W> {
+impl<'sink, WriterType: Write> AlignedWriter<'sink, WriterType> {
     /// `inner`, with the blob starting at the next byte written to it
-    pub fn new(inner: &'w mut W) -> Self {
+    pub fn new(inner: &'sink mut WriterType) -> Self {
         AlignedWriter { inner, position: 0 }
     }
 
@@ -24,7 +24,7 @@ impl<'w, W: Write> AlignedWriter<'w, W> {
     }
 }
 
-impl<W: Write> Write for AlignedWriter<'_, W> {
+impl<WriterType: Write> Write for AlignedWriter<'_, WriterType> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let written = self.inner.write(buf)?;
         self.position += written as u64;

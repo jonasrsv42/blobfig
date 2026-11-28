@@ -8,8 +8,8 @@ use crate::types::{Array, ValueTag};
 use std::io::Write;
 
 /// Write an array value; its data must be the size its dtype and shape need
-pub fn write_array<W: Write>(
-    writer: &mut AlignedWriter<'_, W>,
+pub fn write_array<WriterType: Write>(
+    writer: &mut AlignedWriter<'_, WriterType>,
     arr: &Array,
 ) -> Result<(), WriteError> {
     check_data_size(arr.dtype, &arr.shape, arr.data.len())?;

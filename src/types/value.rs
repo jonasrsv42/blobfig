@@ -4,7 +4,9 @@
 //! accessors common to both are on the [`NodeView`](super::NodeView) trait in
 //! `node_view.rs`.
 
-use super::{Array, File, List, NodeView, Object, ValueTag};
+use std::mem;
+
+use super::{Array, File, List, NodeView, Object, Secret, ValueTag};
 
 /// What a secret value renders as when printed. Single source of truth so the
 /// `Value` and `ValueView` `Debug`/`Display` impls cannot drift apart.
@@ -20,13 +22,16 @@ pub enum Value {
     File(File),
     Object(Object),
     List(List),
-    /// A value marked secret: prints as `<redacted>`, but is otherwise a normal
-    /// value (stored in plaintext on the wire — this is redaction, not encryption).
-    Secret(Box<Value>),
+    /// A value marked secret: prints as `<redacted>`, and the bytes it owns are
+    /// zeroed when dropped, but it is stored in plaintext on the wire
+    /// (redaction, not encryption). The README's "Secrets" section lists the
+    /// copies the wipe can't reach.
+    Secret(Secret),
 }
 
 impl Value {
-    /// Mark a value as secret so it is redacted when printed.
+    /// Mark a value as secret so it is redacted when printed and wiped when
+    /// dropped.
     ///
     /// ```
     /// use blobfig::Value;
@@ -34,7 +39,7 @@ impl Value {
     /// assert_eq!(format!("{:?}", pw), "<redacted>");
     /// ```
     pub fn secret(value: impl Into<Value>) -> Value {
-        Value::Secret(Box::new(value.into()))
+        Value::Secret(Secret::new(value.into()))
     }
 
     /// An object value from its `(key, value)` entries — shorthand for
@@ -73,7 +78,7 @@ impl NodeView for Value {
     fn peel_secret(&self) -> &Self {
         let mut current = self;
         while let Value::Secret(inner) = current {
-            current = inner;
+            current = &**inner;
         }
         current
     }
@@ -145,9 +150,10 @@ impl TryFrom<Value> for Object {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             Value::Object(object) => Ok(object),
-            Value::Secret(inner) => {
-                Object::try_from(*inner).map_err(|inner| Value::Secret(Box::new(inner)))
-            }
+            Value::Secret(secret) => secret.take(|inner| match inner {
+                Value::Object(object) => Some(mem::take(object)),
+                _ => None,
+            }),
             other => Err(other),
         }
     }
@@ -163,9 +169,10 @@ impl TryFrom<Value> for List {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             Value::List(list) => Ok(list),
-            Value::Secret(inner) => {
-                List::try_from(*inner).map_err(|inner| Value::Secret(Box::new(inner)))
-            }
+            Value::Secret(secret) => secret.take(|inner| match inner {
+                Value::List(list) => Some(mem::take(list)),
+                _ => None,
+            }),
             other => Err(other),
         }
     }
@@ -180,9 +187,10 @@ impl TryFrom<Value> for String {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             Value::String(string) => Ok(string),
-            Value::Secret(inner) => {
-                String::try_from(*inner).map_err(|inner| Value::Secret(Box::new(inner)))
-            }
+            Value::Secret(secret) => secret.take(|inner| match inner {
+                Value::String(string) => Some(mem::take(string)),
+                _ => None,
+            }),
             other => Err(other),
         }
     }
@@ -197,9 +205,14 @@ impl TryFrom<Value> for Array {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             Value::Array(array) => Ok(array),
-            Value::Secret(inner) => {
-                Array::try_from(*inner).map_err(|inner| Value::Secret(Box::new(inner)))
-            }
+            Value::Secret(secret) => secret.take(|inner| match inner {
+                Value::Array(array) => Some(Array {
+                    dtype: array.dtype,
+                    shape: mem::take(&mut array.shape),
+                    data: mem::take(&mut array.data),
+                }),
+                _ => None,
+            }),
             other => Err(other),
         }
     }
@@ -308,7 +321,7 @@ mod tests {
 
     #[test]
     fn double_secret_redacts() {
-        let v = Value::Secret(Box::new(Value::secret("x")));
+        let v = Value::secret(Value::secret("x"));
         assert_eq!(format!("{:?}", v), "<redacted>");
     }
 
@@ -385,8 +398,8 @@ mod tests {
     }
 
     #[test]
-    fn a_string_moves_out_through_its_secret() {
-        let value = Value::secret("token");
+    fn a_string_moves_out_through_nested_secrets() {
+        let value = Value::secret(Value::secret("token"));
         let string = String::try_from(value).expect("moves the string out");
         assert_eq!(string, "token");
     }
@@ -402,10 +415,14 @@ mod tests {
     }
 
     #[test]
-    fn an_array_moves_out() {
+    fn an_array_moves_out_plain_or_through_its_secret() {
         use crate::DType;
-        let value = Value::Array(Array::new(DType::U8, vec![3], vec![1, 2, 3]));
-        let array = Array::try_from(value).expect("moves the array out");
-        assert_eq!(array.data, vec![1, 2, 3]);
+        let array = || Value::Array(Array::new(DType::I16, vec![3], vec![1, 2, 3, 4, 5, 6]));
+        for value in [array(), Value::secret(array())] {
+            let array = Array::try_from(value).expect("moves the array out");
+            assert_eq!(array.dtype, DType::I16);
+            assert_eq!(array.shape, vec![3]);
+            assert_eq!(array.data, vec![1, 2, 3, 4, 5, 6]);
+        }
     }
 }

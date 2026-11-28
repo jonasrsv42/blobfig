@@ -60,7 +60,7 @@ pub use error::{
 pub use parser::parse;
 pub use types::{
     ALIGNMENT, Array, ArrayNode, ArrayView, DType, File, FileData, FileHandle, FileNode, FileView,
-    HEADER_SIZE, List, ListNode, ListView, MAGIC, NodeView, Object, ObjectNode, ObjectView,
+    HEADER_SIZE, List, ListNode, ListView, MAGIC, NodeView, Object, ObjectNode, ObjectView, Secret,
     VERSION, Value, ValueTag, ValueView,
 };
 

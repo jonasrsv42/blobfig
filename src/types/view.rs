@@ -49,7 +49,7 @@ impl<'a> ValueView<'a> {
             }
             // `(**inner)` reaches the inner `ValueView` so this calls the
             // inherent `to_owned`, not `ToOwned::to_owned` on the `Box`.
-            ValueView::Secret(inner) => Value::Secret(Box::new((**inner).to_owned())),
+            ValueView::Secret(inner) => Value::secret((**inner).to_owned()),
         }
     }
 

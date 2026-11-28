@@ -21,6 +21,7 @@ areamy = ["dep:areamy"]
 parsicomb = { git = "https://github.com/jonasrsv42/parsicomb" }
 ndarray = { version = "0.17.2", optional = true }
 areamy = { git = "https://github.com/jonasrsv42/areamy", optional = true }
+zeroize = { version = "1.9", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 criterion = "0.5"

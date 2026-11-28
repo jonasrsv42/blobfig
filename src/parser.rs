@@ -468,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_double_secret_peels_on_access() {
-        let value = Value::Secret(Box::new(Value::secret("deep")));
+        let value = Value::secret(Value::secret("deep"));
         let bytes = writer::to_bytes(value).unwrap();
         let parsed = parse(&bytes).unwrap();
 

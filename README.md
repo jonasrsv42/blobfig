@@ -277,6 +277,21 @@ Object([("user", String("alice")), ("password", <redacted>), ("db", <redacted>)]
 > and in memory. This prevents *accidental* disclosure through printing and
 > logging; anyone who reads the value or the file sees it.
 
+When an owned `Value::secret` is dropped, blobfig zeroes the bytes it owns,
+spare capacity included. Copies the wipe can't reach stay where they are:
+
+- what `parse` reads, which borrows your buffer, so wiping it is up to you;
+- the output of `writer`, including what a growing `Vec` leaves behind when
+  it reallocates;
+- a payload you move out with `String::try_from`, `Object::try_from` and the
+  like, which is yours from then on. Children of an object or list you move
+  out are neither redacted nor wiped unless they are secrets themselves;
+- keys inside a secret that a write error names in its path;
+- copies made before the value was marked secret, temporaries on the stack
+  (such as the buffer the writer streams a file handle through), and a file
+  handle's bytes;
+- a secret that is never dropped, as after `mem::forget` or an abort.
+
 ## Errors
 
 `parse` fails with a `ParseError`. Printed, it says what went wrong and

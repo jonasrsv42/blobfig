@@ -19,8 +19,9 @@ fn wire_len<T: TryFrom<usize>>(len: usize, field: LengthField) -> Result<T, Writ
     T::try_from(len).map_err(|_| WriteErrorReason::TooLarge { field, len }.into())
 }
 
-/// Write a blobfig value to a writer (consumes the value to handle streaming)
-pub fn write<W: Write>(writer: &mut W, value: Value) -> Result<(), WriteError> {
+/// Write a blobfig value to a writer, consuming it so each child is freed once
+/// written
+pub fn write<WriterType: Write>(writer: &mut WriterType, value: Value) -> Result<(), WriteError> {
     // Array and file data are aligned from the start of the blob
     let writer = &mut AlignedWriter::new(writer);
     // Write header
@@ -190,20 +191,24 @@ mod tests {
 
     #[test]
     fn test_writes_only_what_the_parser_can_read_deep() {
-        // `depth` values deep: secrets, lists and objects in turn around a bool
-        let nested = |depth: usize| {
-            (1..depth).fold(Value::Bool(true), |v, level| match level % 3 {
-                0 => Value::secret(v),
-                1 => Value::list(vec![v]),
+        // `depth` values deep: lists and objects in turn around a bool
+        fn nested(depth: usize) -> Value {
+            (1..depth).fold(Value::Bool(true), |v, level| match level % 2 {
+                0 => Value::list(vec![v]),
                 _ => Value::object(vec![("k".into(), v)]),
             })
-        };
+        }
+        // Moved out as it is written, and written in place inside a secret,
+        // which is a value deep itself
+        let in_secret = |depth: usize| Value::secret(nested(depth - 1));
 
-        let bytes = to_bytes(nested(crate::MAX_DEPTH)).unwrap();
-        assert!(crate::parse(&bytes).is_ok());
+        for build in [nested, in_secret] {
+            let bytes = to_bytes(build(crate::MAX_DEPTH)).unwrap();
+            assert!(crate::parse(&bytes).is_ok());
 
-        let error = to_bytes(nested(crate::MAX_DEPTH + 1)).unwrap_err();
-        assert!(matches!(error.reason(), WriteErrorReason::TooDeep));
+            let error = to_bytes(build(crate::MAX_DEPTH + 1)).unwrap_err();
+            assert!(matches!(error.reason(), WriteErrorReason::TooDeep));
+        }
     }
 
     #[test]
@@ -222,22 +227,31 @@ mod tests {
         use crate::error::PathSegment::{Index, Key};
         let bad = || Value::Array(Array::new(DType::F32, vec![4], vec![0; 3]));
 
-        // Object keys and list indices, root first; a secret adds no step
+        // Object keys and list indices, root first, outside a secret and in
+        // it; a secret adds no step
         let value = Value::object(vec![(
             "model".into(),
             Value::list(vec![
                 Value::Int(0),
-                Value::secret(Value::object(vec![("my weights".into(), bad())])),
+                Value::secret(Value::list(vec![Value::object(vec![(
+                    "my weights".into(),
+                    bad(),
+                )])])),
             ]),
         )]);
         let error = to_bytes(value).unwrap_err();
         let path: Vec<_> = error.path().segments().cloned().collect();
-        let expected = [Key("model".into()), Index(1), Key("my weights".into())];
+        let expected = [
+            Key("model".into()),
+            Index(1),
+            Index(0),
+            Key("my weights".into()),
+        ];
         assert_eq!(path, expected);
         let reason = error.reason().to_string();
         assert_eq!(
             error.to_string(),
-            format!("at \"model/1/my weights\": {reason}")
+            format!("at \"model/1/0/my weights\": {reason}")
         );
 
         // At the root there is nowhere to point

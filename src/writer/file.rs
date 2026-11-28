@@ -7,9 +7,9 @@ use crate::types::{File, FileData, ValueTag};
 use std::io::{self, Read, Write};
 
 /// Write a file value (handles streaming from handle)
-pub fn write_file<W: Write>(
-    writer: &mut AlignedWriter<'_, W>,
-    mut file: File,
+pub fn write_file<WriterType: Write>(
+    writer: &mut AlignedWriter<'_, WriterType>,
+    file: &mut File,
 ) -> Result<(), WriteError> {
     writer.write_all(&[ValueTag::File as u8])?;
 
@@ -35,9 +35,9 @@ pub fn write_file<W: Write>(
 }
 
 /// Stream data from a handle to writer
-fn stream_from_handle<W: Write, R: Read + ?Sized>(
-    writer: &mut W,
-    reader: &mut R,
+fn stream_from_handle<WriterType: Write, ReaderType: Read + ?Sized>(
+    writer: &mut WriterType,
+    reader: &mut ReaderType,
     size: u64,
 ) -> Result<(), WriteError> {
     let mut remaining = size;
@@ -81,8 +81,8 @@ mod tests {
     #[test]
     fn mimetype_longer_than_u16_rejected() {
         // The mimetype length is a u16; 65536 used to be written as 0
-        let file = File::from_bytes("x".repeat(65536), Vec::new());
-        let error = write_file(&mut AlignedWriter::new(&mut Vec::new()), file).unwrap_err();
+        let mut file = File::from_bytes("x".repeat(65536), Vec::new());
+        let error = write_file(&mut AlignedWriter::new(&mut Vec::new()), &mut file).unwrap_err();
         let expected = (LengthField::Mimetype, 65536);
         assert!(
             matches!(error.reason(), &WriteErrorReason::TooLarge { field, len } if (field, len) == expected)
@@ -92,10 +92,10 @@ mod tests {
     #[test]
     fn roundtrip_file_bytes() {
         let content = b"hello world";
-        let file = File::from_bytes("text/plain", content.to_vec());
+        let mut file = File::from_bytes("text/plain", content.to_vec());
 
         let mut buf = Vec::new();
-        write_file(&mut AlignedWriter::new(&mut buf), file).unwrap();
+        write_file(&mut AlignedWriter::new(&mut buf), &mut file).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();
@@ -107,10 +107,10 @@ mod tests {
 
     #[test]
     fn roundtrip_file_empty() {
-        let file = File::from_bytes("application/octet-stream", vec![]);
+        let mut file = File::from_bytes("application/octet-stream", vec![]);
 
         let mut buf = Vec::new();
-        write_file(&mut AlignedWriter::new(&mut buf), file).unwrap();
+        write_file(&mut AlignedWriter::new(&mut buf), &mut file).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();
@@ -123,10 +123,10 @@ mod tests {
     #[test]
     fn roundtrip_file_binary() {
         let content: Vec<u8> = (0..256).map(|i| i as u8).collect();
-        let file = File::from_bytes("application/x-tflite", content.clone());
+        let mut file = File::from_bytes("application/x-tflite", content.clone());
 
         let mut buf = Vec::new();
-        write_file(&mut AlignedWriter::new(&mut buf), file).unwrap();
+        write_file(&mut AlignedWriter::new(&mut buf), &mut file).unwrap();
 
         let cursor = ByteCursor::new(&buf);
         let (parsed, _) = parse_value().parse(cursor).unwrap();
